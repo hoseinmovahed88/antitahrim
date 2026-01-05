@@ -35,27 +35,45 @@
 ssh root@YOUR_SERVER_IP
 ```
 
-### مرحله 2: نصب Xray Reality
+### مرحله 2: دانلود پروژه
+
+چون این repository خصوصی است، نیاز به احراز هویت دارید:
 
 ```bash
-wget https://raw.githubusercontent.com/hoseinmovahed88/antitahrim/main/install-xray-reality.sh
-chmod +x install-xray-reality.sh
+# نصب git
+apt update && apt install -y git
+
+# Clone پروژه (نیاز به Personal Access Token)
+git clone https://github.com/hoseinmovahed88/antitahrim.git
+cd antitahrim
+chmod +x *.sh
+
+# Git از شما username و token می‌خواهد
+# Username: hoseinmovahed88
+# Password: [Your Personal Access Token]
+```
+
+**نحوه ساخت Personal Access Token:**
+1. https://github.com/settings/tokens
+2. Generate new token → Classic
+3. انتخاب scope: `repo`
+4. Generate token و کپی کردن
+
+### مرحله 3: نصب Xray Reality
+
+```bash
 ./install-xray-reality.sh
 ```
 
-### مرحله 3: بهینه‌سازی سرور (اختیاری اما توصیه می‌شود)
+### مرحله 4: بهینه‌سازی سرور (اختیاری اما توصیه می‌شود)
 
 ```bash
-wget https://raw.githubusercontent.com/hoseinmovahed88/antitahrim/main/optimize-server.sh
-chmod +x optimize-server.sh
 ./optimize-server.sh
 ```
 
-### مرحله 4: مدیریت کاربران
+### مرحله 5: مدیریت کاربران
 
 ```bash
-wget https://raw.githubusercontent.com/hoseinmovahed88/antitahrim/main/manage-users.sh
-chmod +x manage-users.sh
 ./manage-users.sh
 ```
 

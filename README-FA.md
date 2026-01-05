@@ -41,16 +41,71 @@
 ssh root@YOUR_SERVER_IP
 ```
 
-#### 2. دانلود و اجرای اسکریپت نصب
+#### 2. دانلود فایل‌ها از Repository خصوصی
+
+چون این repository خصوصی است، از یکی از روش‌های زیر استفاده کنید:
+
+##### روش 1: Clone کردن کل پروژه (توصیه می‌شود)
 
 ```bash
-# دانلود اسکریپت
-wget https://raw.githubusercontent.com/hoseinmovahed88/antitahrim/main/install-xray-reality.sh
+# نصب git (اگر نصب نیست)
+apt update && apt install -y git
+
+# Clone با HTTPS (نیاز به Personal Access Token)
+git clone https://github.com/hoseinmovahed88/antitahrim.git
+cd antitahrim
+chmod +x *.sh
+
+# Git از شما username و password می‌خواهد:
+# Username: hoseinmovahed88
+# Password: [Personal Access Token شما]
+```
+
+##### روش 2: دانلود مستقیم با curl
+
+```bash
+# متغیر TOKEN را تنظیم کنید (یکبار)
+export TOKEN="ghp_YOUR_TOKEN_HERE"
+
+# دانلود اسکریپت نصب
+curl -H "Authorization: token $TOKEN" \
+     -H "Accept: application/vnd.github.v3.raw" \
+     -o install-xray-reality.sh \
+     -L https://api.github.com/repos/hoseinmovahed88/antitahrim/contents/install-xray-reality.sh
+
+# دانلود اسکریپت مدیریت
+curl -H "Authorization: token $TOKEN" \
+     -H "Accept: application/vnd.github.v3.raw" \
+     -o manage-users.sh \
+     -L https://api.github.com/repos/hoseinmovahed88/antitahrim/contents/manage-users.sh
+
+# دانلود اسکریپت بهینه‌سازی
+curl -H "Authorization: token $TOKEN" \
+     -H "Accept: application/vnd.github.v3.raw" \
+     -o optimize-server.sh \
+     -L https://api.github.com/repos/hoseinmovahed88/antitahrim/contents/optimize-server.sh
 
 # اجازه اجرا
-chmod +x install-xray-reality.sh
+chmod +x *.sh
+```
 
-# اجرای اسکریپت
+##### روش 3: ایجاد Personal Access Token
+
+1. به GitHub بروید: https://github.com/settings/tokens
+2. روی "Generate new token" کلیک کنید
+3. نام بدهید (مثلاً "VPS Access")
+4. دسترسی‌ها را انتخاب کنید: `repo` (full control)
+5. روی "Generate token" کلیک کنید
+6. توکن را کپی کنید و در جای امنی ذخیره کنید
+
+#### 3. اجرای اسکریپت نصب
+
+```bash
+# اگر clone کردید
+cd antitahrim
+./install-xray-reality.sh
+
+# یا اگر فقط دانلود کردید
 ./install-xray-reality.sh
 ```
 
