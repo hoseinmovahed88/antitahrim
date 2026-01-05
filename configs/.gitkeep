@@ -1,0 +1,17 @@
+# Client Configurations
+
+این دایرکتوری برای ذخیره کانفیگ‌های تولید شده کاربران است.
+
+## ساختار
+
+```
+configs/
+├── user1-config.json
+├── user1-vless.txt
+├── user1-qr.png
+└── ...
+```
+
+## یادآوری
+
+⚠️ هرگز این فایل‌ها را در Git commit نکنید!

@@ -1,0 +1,38 @@
+# Ignore sensitive files
+configs/*.json
+configs/*.txt
+configs/*.png
+logs/*
+*.log
+
+# Backup files
+*.backup
+*~
+*.bak
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Private keys
+*.key
+*.pem
+
+# Local environment
+.env
+.env.local
+
+# Build artifacts
+dist/
+build/
