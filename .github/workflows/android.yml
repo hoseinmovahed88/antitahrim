@@ -69,14 +69,14 @@ jobs:
       - name: نصب Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
 
       - name: امتحان ثبت‌نام رایگان
         working-directory: tools/warpcheck
         run: go run .
 
-  tun2socks:
-    name: ساخت کتابخانه tun2socks
+  azadcore:
+    name: ساخت هسته اندروید
     runs-on: ubuntu-latest
     # هنوز هیچ کد اپلیکیشنی به این وابسته نیست، پس شکستش نباید جلوی APK را بگیرد
     continue-on-error: true
@@ -94,7 +94,7 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: نصب Android SDK و NDK
+      - name: نصب Android SDK
         uses: android-actions/setup-android@v3
 
       - name: نصب NDK
@@ -106,22 +106,22 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
 
       - name: ساخت AAR
-        working-directory: tools/tun2socks
+        working-directory: tools/azadcore
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.2.12479018
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile init
           gomobile bind -v \
             -target=android/arm64,android/arm \
             -androidapi 24 \
-            -o tun2socks.aar \
+            -o azadcore.aar \
             .
-          ls -la tun2socks.aar
+          ls -la azadcore.aar
 
-      - name: بارگذاری کتابخانه
+      - name: بارگذاری هسته
         uses: actions/upload-artifact@v4
         with:
-          name: tun2socks-aar
-          path: tools/tun2socks/tun2socks.aar
+          name: azadcore-aar
+          path: tools/azadcore/azadcore.aar
           if-no-files-found: error
