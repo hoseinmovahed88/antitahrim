@@ -44,12 +44,19 @@ object Report {
             ?: emptyList()
     }
 
-    /** یک خط به گزارش اضافه می‌کند. */
+    /**
+     * یک خط به گزارش اضافه می‌کند.
+     *
+     * از commit استفاده می‌شود نه apply. apply نوشتن را به صف می‌سپارد، و
+     * اگر فرایند بلافاصله بعدش به شکل بومی بمیرد آن نوشته هرگز انجام نمی‌شود.
+     * دقیقاً همین اتفاق افتاد و آخرین خط قبل از یک کرش گم شد، یعنی همان خطی
+     * که می‌گفت کجا مرده است.
+     */
     fun log(message: String) {
         val line = stamp.format(Date()) + "  " + message
         val updated = (_lines.value + line).takeLast(MAX_LINES)
         _lines.value = updated
-        prefs?.edit()?.putString(KEY_LINES, updated.joinToString("\n"))?.apply()
+        prefs?.edit()?.putString(KEY_LINES, updated.joinToString("\n"))?.commit()
     }
 
     /**

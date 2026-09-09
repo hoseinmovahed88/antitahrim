@@ -33,7 +33,15 @@ func XrayVersion() string {
 // این را سمت اندروید حل می‌کنیم، با کنار گذاشتن خود برنامه از VPN
 // (addDisallowedApplication)، که از پاس دادن یک callback از Go به جاوا
 // ساده‌تر و کم‌خطاتر است.
-func StartXray(configJSON string) error {
+func StartXray(configJSON string) (err error) {
+	// هر panic داخل هسته باید به خطا تبدیل شود. بدون این، یک panic در Go
+	// کل فرایند اندروید را می‌کشد و هیچ ردی باقی نمی‌گذارد.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("هسته Xray از کار افتاد: %v", r)
+		}
+	}()
+
 	xrayMu.Lock()
 	defer xrayMu.Unlock()
 
