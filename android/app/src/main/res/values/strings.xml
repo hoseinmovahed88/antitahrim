@@ -7,6 +7,7 @@
     <string name="disconnect">قطع</string>
     <string name="state_disconnected">قطع</string>
     <string name="state_registering">در حال ساخت حساب…</string>
+    <string name="state_scanning">جست‌وجوی نقطه اتصال…</string>
     <string name="state_connected">وصل شد</string>
     <string name="state_failed">ناموفق</string>
 

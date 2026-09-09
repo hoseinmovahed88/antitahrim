@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
         binding.resetButton.setOnClickListener {
             lifecycleScope.launch {
                 vpn.disconnect()
-                vpn.store().clear()
+                vpn.prefs().clear()
                 bindSettings()
                 Toast.makeText(this@MainActivity, R.string.reset_done, Toast.LENGTH_LONG).show()
             }
@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindSettings() {
-        val store = vpn.store()
+        val store = vpn.prefs()
         binding.switchFragment.isChecked = store.fragmentTls
         binding.switchStrictDns.isChecked = store.strictIranDns
         binding.switchDomestic.isChecked = store.domesticDirect
@@ -108,7 +108,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             is VpnManager.State.Scanning -> {
-                statusText.text = getString(R.string.state_registering)
+                statusText.setText(R.string.state_scanning)
                 detailText.text = "${state.tried}/${state.total}  ${state.endpoint}"
                 progress.visibility = android.view.View.VISIBLE
                 actionButton.isEnabled = false

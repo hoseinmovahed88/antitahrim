@@ -1,0 +1,76 @@
+name: Android
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'tools/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ساخت APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: نصب JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: نصب Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: آماده‌سازی Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: اجرای تست‌های واحد
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: ساخت APK دیباگ
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: ساخت APK ریلیز
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: بارگذاری APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: azad-apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: بارگذاری گزارش تست در صورت شکست
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: android/app/build/reports/
+
+  warp-api:
+    name: بررسی API ثبت‌نام WARP
+    runs-on: ubuntu-latest
+    # اگر Cloudflare قالب پاسخ را عوض کند این شکست می‌خورد ولی جلوی ساخت را نمی‌گیرد
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: نصب Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: امتحان ثبت‌نام رایگان
+        working-directory: tools/warpcheck
+        run: go run .

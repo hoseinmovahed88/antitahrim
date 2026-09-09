@@ -169,7 +169,7 @@ class VpnManager private constructor(context: Context) {
         runCatching { backend.setState(tunnel, Tunnel.State.DOWN, null) }
     }
 
-    fun store(): Store = store
+    fun prefs(): Store = store
 
     companion object {
         @Volatile
