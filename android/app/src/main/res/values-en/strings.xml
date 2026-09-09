@@ -29,4 +29,9 @@
     <string name="log_copied">Report copied</string>
     <string name="crash_title">The app closed unexpectedly last time</string>
     <string name="crash_dismiss">Got it</string>
+    <string name="transport">Connection method</string>
+    <string name="transport_xray">Free public servers</string>
+    <string name="transport_xray_desc">Faster and usually gets through. Traffic passes through servers run by strangers, so not for anything sensitive.</string>
+    <string name="transport_warp">Cloudflare's free tunnel</string>
+    <string name="transport_warp_desc">Trusts no stranger, but some Iranian networks block the protocol outright.</string>
 </resources>

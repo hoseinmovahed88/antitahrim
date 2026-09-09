@@ -76,13 +76,29 @@ class Store(context: Context) {
         get() = prefs.getBoolean(KEY_STRICT_DNS, false)
         set(value) = prefs.edit().putBoolean(KEY_STRICT_DNS, value).apply()
 
+    /**
+     * کدام حامل استفاده شود.
+     *
+     * warp: تونل رایگان Cloudflare. بدون سرور و بدون اعتماد به غریبه، ولی
+     *       در بعضی شبکه‌های ایران کل پروتکلش مسدود است.
+     * xray: سرورهای رایگان از فهرست‌های عمومی. معمولاً باز می‌شود و سریع
+     *       است، ولی ترافیک از سرور افراد ناشناس رد می‌شود.
+     */
+    var transport: String
+        get() = prefs.getString(KEY_TRANSPORT, TRANSPORT_XRAY) ?: TRANSPORT_XRAY
+        set(value) = prefs.edit().putString(KEY_TRANSPORT, value).apply()
+
     fun clear() = prefs.edit().clear().apply()
 
-    private companion object {
+    companion object {
+        const val TRANSPORT_WARP = "warp"
+        const val TRANSPORT_XRAY = "xray"
+
         const val KEY_ACCOUNT = "account"
         const val KEY_ENDPOINT = "endpoint"
         const val KEY_DOMESTIC = "domestic_direct"
         const val KEY_FRAGMENT = "fragment_tls"
         const val KEY_STRICT_DNS = "strict_iran_dns"
+        const val KEY_TRANSPORT = "transport"
     }
 }

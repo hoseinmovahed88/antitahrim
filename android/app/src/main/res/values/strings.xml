@@ -29,4 +29,9 @@
     <string name="log_copied">گزارش کپی شد</string>
     <string name="crash_title">دفعه قبل برنامه بسته شد</string>
     <string name="crash_dismiss">متوجه شدم</string>
+    <string name="transport">روش اتصال</string>
+    <string name="transport_xray">سرورهای رایگان عمومی</string>
+    <string name="transport_xray_desc">سریع‌تر و معمولاً باز می‌شود. ترافیک از سرور افراد ناشناس رد می‌شود، پس برای کار حساس مناسب نیست.</string>
+    <string name="transport_warp">تونل رایگان Cloudflare</string>
+    <string name="transport_warp_desc">به هیچ غریبه‌ای اعتماد نمی‌کند، ولی در بعضی شبکه‌های ایران کل پروتکلش مسدود است.</string>
 </resources>

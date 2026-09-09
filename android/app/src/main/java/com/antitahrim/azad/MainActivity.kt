@@ -17,6 +17,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.databinding.ActivityMainBinding
 import com.antitahrim.azad.vpn.VpnManager
+import com.antitahrim.azad.warp.Store
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -101,6 +102,20 @@ class MainActivity : AppCompatActivity() {
         binding.switchFragment.isChecked = store.fragmentTls
         binding.switchStrictDns.isChecked = store.strictIranDns
         binding.switchDomestic.isChecked = store.domesticDirect
+
+        // انتخاب حامل. تغییرش وسط اتصال اثری ندارد تا اتصال بعدی.
+        if (store.transport == Store.TRANSPORT_WARP) {
+            binding.transportWarp.isChecked = true
+        } else {
+            binding.transportXray.isChecked = true
+        }
+        binding.transportGroup.setOnCheckedChangeListener { _, checkedId ->
+            store.transport = if (checkedId == R.id.transportWarp) {
+                Store.TRANSPORT_WARP
+            } else {
+                Store.TRANSPORT_XRAY
+            }
+        }
 
         binding.switchFragment.setOnCheckedChangeListener { _, checked -> store.fragmentTls = checked }
         binding.switchStrictDns.setOnCheckedChangeListener { _, checked -> store.strictIranDns = checked }

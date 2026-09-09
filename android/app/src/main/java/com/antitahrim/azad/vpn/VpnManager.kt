@@ -7,6 +7,9 @@ import com.antitahrim.azad.warp.Endpoints
 import com.antitahrim.azad.warp.Store
 import com.antitahrim.azad.warp.WarpAccount
 import com.antitahrim.azad.warp.WarpRegistrar
+import com.antitahrim.azad.xray.ConfigSources
+import com.antitahrim.azad.xray.ServerTester
+import com.antitahrim.azad.xray.XrayConfig
 import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
@@ -69,16 +72,80 @@ class VpnManager private constructor(context: Context) {
         }
     }
 
-    fun isConnected(): Boolean =
-        runCatching { backend.getState(tunnel) == Tunnel.State.UP }.getOrDefault(false)
+    fun isConnected(): Boolean {
+        if (AzadVpnService.state.value is AzadVpnService.State.Connected) return true
+        return runCatching { backend.getState(tunnel) == Tunnel.State.UP }.getOrDefault(false)
+    }
 
     suspend fun connect() = withContext(Dispatchers.IO) {
+        if (store.transport == Store.TRANSPORT_XRAY) {
+            connectViaXray()
+        } else {
+            connectViaWarp()
+        }
+    }
+
+    /**
+     * مسیر Xray: فهرست‌های عمومی گرفته می‌شود، سرورها غربال می‌شوند، و
+     * اولین سروری که واقعاً ترافیک عبور می‌دهد نگه داشته می‌شود.
+     */
+    private suspend fun connectViaXray() {
+        try {
+            _state.value = State.Preparing
+            Report.log("شروع اتصال از راه Xray")
+
+            val cached = store.workingEndpoint
+            val servers = ConfigSources.fetchAll(store.fragmentTls, store.strictIranDns)
+            if (servers.isEmpty()) {
+                _state.value = State.Failed(
+                    "هیچ فهرست سروری دریافت نشد. اینترنت را بررسی کنید و دوباره بزنید."
+                )
+                return
+            }
+
+            // اگر سروری قبلاً کار کرده بود، اول همان امتحان می‌شود
+            val ordered = if (cached != null) {
+                servers.sortedByDescending { it.key == cached }
+            } else {
+                servers
+            }
+
+            val ranked = ServerTester.rank(ordered) { tested, total, alive ->
+                _state.value = State.Scanning(tested, total, "زنده: " + alive)
+            }
+
+            if (ranked.isEmpty()) {
+                _state.value = State.Failed(
+                    "هیچ‌کدام از سرورهای فهرست از این شبکه در دسترس نبودند."
+                )
+                return
+            }
+
+            val best = ranked.first()
+            Report.log("سریع‌ترین سرور: " + best.link.label + " با " + best.latencyMs + " میلی‌ثانیه")
+
+            val config = XrayConfig.build(best.link, AzadVpnService.DEFAULT_SOCKS_PORT)
+            AzadVpnService.start(
+                appContext,
+                config,
+                AzadVpnService.DEFAULT_SOCKS_PORT,
+                best.link.label
+            )
+            store.workingEndpoint = best.link.key
+            _state.value = State.Connected(best.link.label)
+        } catch (e: Throwable) {
+            Report.logError("اتصال Xray", e)
+            _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
+        }
+    }
+
+    private suspend fun connectViaWarp() {
         // Throwable و نه Exception. اگر کتابخانه بومی WireGuard بارگذاری نشود
         // یک UnsatisfiedLinkError می‌آید که از نوع Error است، نه Exception، و
         // با catch محدود به Exception بی‌صدا از برنامه بیرون می‌زند.
         try {
             _state.value = State.Preparing
-            Report.log("شروع اتصال")
+            Report.log("شروع اتصال از راه WARP")
 
             val account = ensureAccount()
 
@@ -87,7 +154,7 @@ class VpnManager private constructor(context: Context) {
                 Report.log("امتحان آخرین نقطه موفق: " + cached)
                 if (tryEndpoint(account, cached) == Probe.WORKING) {
                     finishConnected(account, cached)
-                    return@withContext
+                    return
                 }
                 Report.log("آن نقطه دیگر جواب نمی‌دهد، جست‌وجوی دوباره")
                 store.workingEndpoint = null
@@ -103,7 +170,7 @@ class VpnManager private constructor(context: Context) {
                     Probe.WORKING -> {
                         store.workingEndpoint = endpoint
                         finishConnected(account, endpoint)
-                        return@withContext
+                        return
                     }
 
                     Probe.HANDSHAKE_ONLY -> handshakes++
@@ -134,6 +201,7 @@ class VpnManager private constructor(context: Context) {
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         stopTunnel()
+        AzadVpnService.stop(appContext)
         _state.value = State.Disconnected
         Report.log("قطع شد")
     }

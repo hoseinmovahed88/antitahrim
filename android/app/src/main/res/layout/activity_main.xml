@@ -120,6 +120,50 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
+            android:text="@string/transport"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <RadioGroup
+            android:id="@+id/transportGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical">
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/transportXray"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/transport_xray" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="34dp"
+                android:alpha="0.6"
+                android:text="@string/transport_xray_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/transportWarp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/transport_warp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="34dp"
+                android:alpha="0.6"
+                android:text="@string/transport_warp_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
             android:text="@string/settings"
             android:textAppearance="?attr/textAppearanceTitleMedium" />
 
