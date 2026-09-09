@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	github.com/xtls/xray-core v1.251208.0
+	golang.org/x/mobile v0.0.0-20260908204917-8b95e45f8d3e
 )
 
 require (
