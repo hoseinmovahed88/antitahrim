@@ -45,7 +45,9 @@ class AzadVpnService : VpnService() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                startTunnel(config, socksPort, label)
+                // بالا آوردن هسته چند ثانیه طول می‌کشد. روی نخ اصلی
+                // انجامش دادن یعنی ANR، پس به یک نخ جدا می‌رود.
+                Thread { startTunnel(config, socksPort, label) }.start()
                 return START_STICKY
             }
         }
@@ -68,6 +70,7 @@ class AzadVpnService : VpnService() {
         shutdown()
         _state.value = State.Starting
 
+        Report.log("ساخت تونل، طول کانفیگ " + config.length)
         val descriptor = try {
             Azadcore.startXray(config)
             Report.log("هسته Xray بالا آمد، نسخه " + Azadcore.xrayVersion())
@@ -82,7 +85,11 @@ class AzadVpnService : VpnService() {
 
         if (descriptor == null) {
             runCatching { Azadcore.stopXray() }
-            _state.value = State.Failed("ساخت دستگاه tun ممکن نشد")
+            // establish فقط وقتی null می‌دهد که اجازه VPN نداشته باشیم یا
+            // برنامه دیگری تونل را در دست گرفته باشد.
+            _state.value = State.Failed(
+                "اندروید اجازه ساخت تونل نداد. اگر VPN دیگری روشن است خاموشش کنید."
+            )
             stopSelf()
             return
         }

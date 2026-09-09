@@ -131,12 +131,74 @@ class VpnManager private constructor(context: Context) {
                 AzadVpnService.DEFAULT_SOCKS_PORT,
                 best.link.label
             )
+
+            when (val outcome = awaitTunnel()) {
+                is TunnelOutcome.Failed -> {
+                    _state.value = State.Failed(outcome.message)
+                    return
+                }
+
+                TunnelOutcome.TimedOut -> {
+                    AzadVpnService.stop(appContext)
+                    _state.value = State.Failed("تونل در زمان مقرر بالا نیامد.")
+                    return
+                }
+
+                TunnelOutcome.Established -> Unit
+            }
+
+            // بالا آمدن تونل کافی نیست. تا وقتی یک بسته واقعی رفت و برنگردد
+            // نمی‌شود گفت وصل شده‌ایم. همان اشتباهی که مسیر WARP از آن در امان
+            // بود و اینجا تکرار شده بود.
+            if (!trafficFlows()) {
+                AzadVpnService.stop(appContext)
+                _state.value = State.Failed(
+                    "تونل ساخته شد ولی هیچ ترافیکی از آن عبور نکرد. سرور جواب نمی‌دهد."
+                )
+                return
+            }
+
             store.workingEndpoint = best.link.key
             _state.value = State.Connected(best.link.label)
         } catch (e: Throwable) {
             Report.logError("اتصال Xray", e)
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
         }
+    }
+
+
+    private sealed interface TunnelOutcome {
+        data object Established : TunnelOutcome
+        data object TimedOut : TunnelOutcome
+        data class Failed(val message: String) : TunnelOutcome
+    }
+
+    /**
+     * صبر می‌کند تا سرویس VPN واقعاً تونل را برقرار کند.
+     *
+     * راه‌اندازی سرویس با یک intent انجام می‌شود و بلافاصله برمی‌گردد، پس
+     * بدون این انتظار، برنامه پیش از آنکه چیزی ساخته شود «متصل» اعلام می‌کرد.
+     */
+    private suspend fun awaitTunnel(timeoutMs: Long = 25_000): TunnelOutcome {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            when (val serviceState = AzadVpnService.state.value) {
+                is AzadVpnService.State.Connected -> return TunnelOutcome.Established
+                is AzadVpnService.State.Failed -> return TunnelOutcome.Failed(serviceState.message)
+                else -> delay(400)
+            }
+        }
+        return TunnelOutcome.TimedOut
+    }
+
+    /** یک پرس‌وجوی DNS از داخل تونل، به عنوان اثبات عبور واقعی ترافیک. */
+    private suspend fun trafficFlows(): Boolean {
+        repeat(5) {
+            if (IranDns.probeThroughTunnel()) return true
+            delay(800)
+        }
+        Report.log("تونل بالا آمد ولی پرس‌وجوی آزمایشی جوابی نگرفت")
+        return false
     }
 
     private suspend fun connectViaWarp() {
