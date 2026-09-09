@@ -61,6 +61,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.wireguard.tunnel)
+
+    // هسته Go (Xray + پل tun) که CI با gomobile می‌سازد و در libs می‌گذارد.
+    // fileTree استفاده می‌شود تا نبودن فایل خطای پیکربندی ندهد؛ اگر نباشد،
+    // کدی که به آن نیاز دارد در همان کامپایل شکست می‌خورد و علتش روشن است.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
     testImplementation(libs.junit)
     // اندروید org.json را در تست‌های واحد فقط به صورت استاب می‌دهد که استثنا
     // می‌اندازد. بدون نسخه واقعی، هر تستی که JSON بخواند شکست می‌خورد.
