@@ -1,4 +1,4 @@
-// Package tun2socks پلی است بین دستگاه tun اندروید و یک پروکسی SOCKS محلی.
+// Package azadcore هستهٔ شبکه برنامه است: یک پروکسی Xray در فرایند، و پلی است بین دستگاه tun اندروید و یک پروکسی SOCKS محلی.
 //
 // چرا لازم است: Psiphon یک پروکسی SOCKS روی گوشی باز می‌کند، ولی VpnService
 // اندروید بسته‌های خام IP می‌دهد. این بسته‌ها باید به اتصال‌های TCP و UDP
@@ -8,7 +8,7 @@
 // این بسته با gomobile به یک کتابخانه اندروید تبدیل می‌شود:
 //
 //	gomobile bind -target=android/arm64,android/arm -o tun2socks.aar .
-package tun2socks
+package azadcore
 
 import (
 	"errors"
