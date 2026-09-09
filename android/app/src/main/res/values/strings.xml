@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">آزاد</string>
+    <string name="tagline">بدون سرور، بدون کانفیگ</string>
+
+    <string name="connect">اتصال</string>
+    <string name="disconnect">قطع</string>
+    <string name="state_disconnected">قطع</string>
+    <string name="state_registering">در حال ساخت حساب…</string>
+    <string name="state_connected">وصل شد</string>
+    <string name="state_failed">ناموفق</string>
+
+    <string name="settings">تنظیمات</string>
+    <string name="opt_domestic">ترافیک داخلی مستقیم</string>
+    <string name="opt_domestic_desc">سایت‌های ایرانی از تونل رد نشوند. سریع‌تر است ولی روی گوشی‌های قدیمی ممکن است اتصال را کند کند.</string>
+    <string name="opt_fragment">تکه‌تکه کردن دست‌دادن TLS</string>
+    <string name="opt_fragment_desc">اسم دامنه را در اولین بسته از دید سامانه بازرسی پنهان می‌کند.</string>
+    <string name="opt_strict_dns">فقط DNS ایرانی</string>
+    <string name="opt_strict_dns_desc">اگر حل‌کننده‌های ایرانی جواب ندادند، به DNS خود گوشی برنگردد.</string>
+
+    <string name="log">گزارش</string>
+    <string name="reset">پاک کردن حساب و شروع دوباره</string>
+    <string name="reset_done">حساب پاک شد. دفعه بعد حساب تازه ساخته می‌شود.</string>
+    <string name="permission_needed">برای ساخت تونل باید اجازه VPN بدهید.</string>
+    <string name="no_endpoint">هیچ نقطه اتصالی جواب نداد.</string>
+</resources>

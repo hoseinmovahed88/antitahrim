@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Azad</string>
+    <string name="tagline">No server, no config</string>
+
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="state_disconnected">Disconnected</string>
+    <string name="state_registering">Creating account…</string>
+    <string name="state_connected">Connected</string>
+    <string name="state_failed">Failed</string>
+
+    <string name="settings">Settings</string>
+    <string name="opt_domestic">Route domestic traffic directly</string>
+    <string name="opt_domestic_desc">Keep Iranian sites out of the tunnel. Faster, but can slow down connecting on older phones.</string>
+    <string name="opt_fragment">Fragment the TLS handshake</string>
+    <string name="opt_fragment_desc">Hides the domain name in the first packet from deep packet inspection.</string>
+    <string name="opt_strict_dns">Iranian DNS only</string>
+    <string name="opt_strict_dns_desc">Do not fall back to the phone\'s own resolver if Iranian ones fail.</string>
+
+    <string name="log">Log</string>
+    <string name="reset">Reset account and start over</string>
+    <string name="reset_done">Account cleared. A new one will be created next time.</string>
+    <string name="permission_needed">VPN permission is required to build the tunnel.</string>
+    <string name="no_endpoint">No endpoint responded.</string>
+</resources>
