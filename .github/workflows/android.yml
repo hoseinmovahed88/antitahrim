@@ -114,11 +114,16 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease
 
+      # ساخت با تفکیک معماری، یک فایل به ازای هر معماری تولید می‌کند.
+      # نامشان به شکل app-arm64-v8a-debug.apk است و اینجا کوتاه می‌شوند.
       - name: نام‌گذاری خروجی‌ها
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk out/azad-debug.apk
-          cp android/app/build/outputs/apk/release/app-release.apk out/azad-release.apk
+          for f in android/app/build/outputs/apk/*/*.apk; do
+            base="$(basename "$f")"
+            short="${base#app-}"
+            cp "$f" "out/azad-${short}"
+          done
           ls -la out
 
       - name: بارگذاری APK
@@ -139,10 +144,16 @@ jobs:
           body: |
             ساخته‌شده از کامیت ${{ github.sha }}
 
-            azad-debug.apk برای امتحان کردن و دیدن گزارش تشخیصی.
-            azad-release.apk کوچک‌تر و بهینه‌شده است.
+            **کدام فایل را بگیرم؟**
 
-            هر دو با کلید دیباگ امضا شده‌اند.
+            تقریباً همه گوشی‌های امروزی arm64 هستند، پس
+            `azad-arm64-v8a-debug.apk` را بگیرید.
+            اگر نصب نشد یا گوشی خیلی قدیمی است، نسخه `armeabi-v7a` را امتحان کنید.
+
+            فایل‌های `debug` گزارش تشخیصی کامل نشان می‌دهند و برای عیب‌یابی
+            مناسب‌ترند. فایل‌های `release` کوچک‌ترند.
+
+            همه با کلید دیباگ امضا شده‌اند، پس برای انتشار در فروشگاه مناسب نیستند.
           files: out/*.apk
           prerelease: true
           make_latest: false
