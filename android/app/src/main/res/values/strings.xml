@@ -24,4 +24,9 @@
     <string name="reset_done">حساب پاک شد. دفعه بعد حساب تازه ساخته می‌شود.</string>
     <string name="permission_needed">برای ساخت تونل باید اجازه VPN بدهید.</string>
     <string name="no_endpoint">هیچ نقطه اتصالی جواب نداد.</string>
+    <string name="state_preparing">در حال آماده‌سازی…</string>
+    <string name="copy_log">کپی گزارش کامل</string>
+    <string name="log_copied">گزارش کپی شد</string>
+    <string name="crash_title">دفعه قبل برنامه بسته شد</string>
+    <string name="crash_dismiss">متوجه شدم</string>
 </resources>

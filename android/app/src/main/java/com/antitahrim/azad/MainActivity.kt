@@ -1,14 +1,20 @@
 package com.antitahrim.azad
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.Lifecycle
+import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.databinding.ActivityMainBinding
 import com.antitahrim.azad.vpn.VpnManager
 import kotlinx.coroutines.launch
@@ -24,6 +30,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             startConnect()
         } else {
+            Report.log("کاربر اجازه VPN را نداد")
             Toast.makeText(this, R.string.permission_needed, Toast.LENGTH_LONG).show()
         }
     }
@@ -34,6 +41,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         bindSettings()
+        showCrashIfAny()
 
         binding.actionButton.setOnClickListener {
             if (vpn.isConnected()) {
@@ -43,16 +51,49 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.copyLogButton.setOnClickListener { copyReport() }
+
         binding.resetButton.setOnClickListener {
             lifecycleScope.launch {
                 vpn.disconnect()
                 vpn.prefs().clear()
+                Report.clear()
                 bindSettings()
                 Toast.makeText(this@MainActivity, R.string.reset_done, Toast.LENGTH_LONG).show()
             }
         }
 
         observeState()
+    }
+
+    /**
+     * اگر برنامه دفعه قبل کرش کرده، علتش را نشان می‌دهد.
+     * بدون این، کرش فقط به صورت «برنامه بسته شد» دیده می‌شود.
+     */
+    private fun showCrashIfAny() {
+        val crash = Report.lastCrash()
+        if (crash.isNullOrBlank()) {
+            binding.crashCard.visibility = View.GONE
+            return
+        }
+        binding.crashCard.visibility = View.VISIBLE
+        binding.crashText.text = crash.lines().take(6).joinToString("\n")
+        binding.dismissCrashButton.setOnClickListener {
+            Report.clearCrash()
+            binding.crashCard.visibility = View.GONE
+        }
+    }
+
+    private fun deviceHeader(): String =
+        "اندروید " + Build.VERSION.RELEASE +
+            " · " + Build.MANUFACTURER + " " + Build.MODEL +
+            " · " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "نامشخص")
+
+    private fun copyReport() {
+        val text = Report.asText(deviceHeader())
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("azad-report", text))
+        Toast.makeText(this, R.string.log_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun bindSettings() {
@@ -83,7 +124,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 launch {
                     vpn.log.collect { lines ->
-                        binding.logText.text = lines.takeLast(12).joinToString("\n")
+                        binding.logText.text = lines.takeLast(14).joinToString("\n")
                     }
                 }
             }
@@ -95,29 +136,36 @@ class MainActivity : AppCompatActivity() {
             is VpnManager.State.Disconnected -> {
                 statusText.setText(R.string.state_disconnected)
                 detailText.text = ""
-                progress.visibility = android.view.View.GONE
+                progress.visibility = View.GONE
                 actionButton.setText(R.string.connect)
                 actionButton.isEnabled = true
+            }
+
+            is VpnManager.State.Preparing -> {
+                statusText.setText(R.string.state_preparing)
+                detailText.text = ""
+                progress.visibility = View.VISIBLE
+                actionButton.isEnabled = false
             }
 
             is VpnManager.State.Registering -> {
                 statusText.setText(R.string.state_registering)
                 detailText.text = ""
-                progress.visibility = android.view.View.VISIBLE
+                progress.visibility = View.VISIBLE
                 actionButton.isEnabled = false
             }
 
             is VpnManager.State.Scanning -> {
                 statusText.setText(R.string.state_scanning)
-                detailText.text = "${state.tried}/${state.total}  ${state.endpoint}"
-                progress.visibility = android.view.View.VISIBLE
+                detailText.text = state.tried.toString() + "/" + state.total + "  " + state.endpoint
+                progress.visibility = View.VISIBLE
                 actionButton.isEnabled = false
             }
 
             is VpnManager.State.Connected -> {
                 statusText.setText(R.string.state_connected)
                 detailText.text = state.endpoint
-                progress.visibility = android.view.View.GONE
+                progress.visibility = View.GONE
                 actionButton.setText(R.string.disconnect)
                 actionButton.isEnabled = true
             }
@@ -125,7 +173,7 @@ class MainActivity : AppCompatActivity() {
             is VpnManager.State.Failed -> {
                 statusText.setText(R.string.state_failed)
                 detailText.text = state.message
-                progress.visibility = android.view.View.GONE
+                progress.visibility = View.GONE
                 actionButton.setText(R.string.connect)
                 actionButton.isEnabled = true
             }

@@ -24,4 +24,9 @@
     <string name="reset_done">Account cleared. A new one will be created next time.</string>
     <string name="permission_needed">VPN permission is required to build the tunnel.</string>
     <string name="no_endpoint">No endpoint responded.</string>
+    <string name="state_preparing">Preparing…</string>
+    <string name="copy_log">Copy the full report</string>
+    <string name="log_copied">Report copied</string>
+    <string name="crash_title">The app closed unexpectedly last time</string>
+    <string name="crash_dismiss">Got it</string>
 </resources>
