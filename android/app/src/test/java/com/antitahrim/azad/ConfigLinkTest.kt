@@ -91,4 +91,16 @@ class ConfigLinkTest {
         requireNotNull(a); requireNotNull(b)
         assertEquals(a.key, b.key)
     }
+
+    @Test
+    fun `base64 decoding accepts both alphabets and missing padding`() {
+        val text = "vless://id@h.com:443#x"
+        val standard = java.util.Base64.getEncoder().encodeToString(text.toByteArray())
+        val noPadding = standard.trimEnd('=')
+        val urlSafe = java.util.Base64.getUrlEncoder().encodeToString(text.toByteArray())
+
+        for (encoded in listOf(standard, noPadding, urlSafe)) {
+            assertEquals(text, String(ConfigLink.decodeBase64(encoded)))
+        }
+    }
 }
