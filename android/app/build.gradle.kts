@@ -62,4 +62,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.wireguard.tunnel)
     testImplementation(libs.junit)
+    // اندروید org.json را در تست‌های واحد فقط به صورت استاب می‌دهد که استثنا
+    // می‌اندازد. بدون نسخه واقعی، هر تستی که JSON بخواند شکست می‌خورد.
+    testImplementation(libs.json)
 }
