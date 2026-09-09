@@ -74,3 +74,54 @@ jobs:
       - name: امتحان ثبت‌نام رایگان
         working-directory: tools/warpcheck
         run: go run .
+
+  tun2socks:
+    name: ساخت کتابخانه tun2socks
+    runs-on: ubuntu-latest
+    # هنوز هیچ کد اپلیکیشنی به این وابسته نیست، پس شکستش نباید جلوی APK را بگیرد
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: نصب JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: نصب Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: نصب Android SDK و NDK
+        uses: android-actions/setup-android@v3
+
+      - name: نصب NDK
+        run: sdkmanager --install "ndk;27.2.12479018"
+
+      - name: نصب gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+
+      - name: ساخت AAR
+        working-directory: tools/tun2socks
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          gomobile init
+          gomobile bind -v \
+            -target=android/arm64,android/arm \
+            -androidapi 24 \
+            -o tun2socks.aar \
+            .
+          ls -la tun2socks.aar
+
+      - name: بارگذاری کتابخانه
+        uses: actions/upload-artifact@v4
+        with:
+          name: tun2socks-aar
+          path: tools/tun2socks/tun2socks.aar
+          if-no-files-found: error
