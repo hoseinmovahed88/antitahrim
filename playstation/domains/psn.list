@@ -1,0 +1,47 @@
+# ============================================================
+# Sony / PlayStation Network domains
+# دامنه‌های شبکه پلی‌استیشن که باید از تونل عبور کنند
+#
+# یک دامنه در هر خط. زیردامنه‌ها خودکار پوشش داده می‌شوند.
+# خطوطی که با # شروع شوند نادیده گرفته می‌شوند.
+# ============================================================
+
+# --- Account / Sign-in / Auth ---
+sonyentertainmentnetwork.com
+account.sony.com
+ca.account.sony.com
+auth.api.sonyentertainmentnetwork.com
+id.sonyentertainmentnetwork.com
+
+# --- Core PSN services ---
+playstation.com
+playstation.net
+playstation.org
+playstationnetwork.com
+np.community.playstation.net
+api.playstation.com
+web.np.playstation.com
+image.api.playstation.com
+
+# --- Store / Commerce ---
+store.playstation.com
+transact.playstation.com
+commerce.api.np.km.playstation.net
+
+# --- Downloads / CDN / Patches ---
+dl.playstation.net
+gs2.ww.prod.dl.playstation.net
+zeus.dl.playstation.net
+tmdb.np.dl.playstation.net
+psn-rsc.prod.dl.playstation.net
+gst.prod.dl.playstation.net
+
+# --- Sony corporate ---
+sony.com
+sony.net
+scea.com
+sonyzone.net
+
+# --- Remote Play / PS App ---
+remoteplay.dl.playstation.net
+mobile-abtest.playstation.net

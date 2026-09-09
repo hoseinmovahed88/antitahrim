@@ -1,0 +1,83 @@
+# ============================================================
+# Game publisher / online-service domains
+# دامنه‌های ناشران بازی که ایران را تحریم یا مسدود کرده‌اند
+#
+# این‌ها فقط وقتی از تونل عبور می‌کنند که «حالت بازی‌ها» روشن باشد.
+# اگر بازی خاصی هنوز باز نشد، دامنه‌اش را همین‌جا اضافه کنید.
+# ============================================================
+
+# --- Electronic Arts (FIFA / FC, Apex, Battlefield, Need for Speed) ---
+ea.com
+easports.com
+eamobile.com
+origin.com
+eaassets-a.akamaihd.net
+
+# --- Activision / Blizzard (Call of Duty, Diablo, Overwatch) ---
+activision.com
+callofduty.com
+demonware.net
+blizzard.com
+battle.net
+blzstatic.cn
+
+# --- Ubisoft (Assassin's Creed, Rainbow Six, Far Cry) ---
+ubisoft.com
+ubi.com
+uplay.com
+ubisoftconnect.com
+
+# --- Rockstar / Take-Two (GTA Online, Red Dead Online, NBA 2K) ---
+rockstargames.com
+socialclub.rockstargames.com
+take2games.com
+2k.com
+
+# --- Epic Games (Fortnite, Rocket League, Fall Guys) ---
+epicgames.com
+epicgames.dev
+unrealengine.com
+psyonix.com
+
+# --- Bungie (Destiny 2) ---
+bungie.net
+
+# --- Bandai Namco (Elden Ring, Tekken, Dark Souls) ---
+bandainamcoent.com
+bandainamcoent.eu
+fromsoftware.jp
+
+# --- Square Enix (Final Fantasy) ---
+square-enix.com
+finalfantasyxiv.com
+
+# --- Capcom (Monster Hunter, Resident Evil, Street Fighter) ---
+capcom.com
+capcom-networks.com
+
+# --- Warner Bros / NetherRealm (Mortal Kombat) ---
+wbgames.com
+netherrealm.com
+
+# --- Konami (eFootball / PES, Metal Gear) ---
+konami.com
+konami.net
+pes-configs.com
+
+# --- Others ---
+riotgames.com
+minecraft.net
+minecraftservices.com
+mojang.com
+roblox.com
+rbxcdn.com
+warframe.com
+pubg.com
+krafton.com
+gaijin.net
+wargaming.net
+gearboxsoftware.com
+
+# --- Anti-cheat / telemetry (needed by many online games) ---
+easyanticheat.net
+battleye.com

@@ -26,23 +26,31 @@
 - 🎯 **نصب آسان**: نصب خودکار با یک دستور
 - 🔧 **مدیریت ساده**: پنل مدیریت کاربران با رابط متنی
 - 📱 **پشتیبانی همه‌جانبه**: کلاینت‌های موبایل و دسکتاپ
+- 🎮 **پلی‌استیشن**: دروازه اختصاصی برای PS4/PS5 بدون خراب کردن NAT Type
 
-## � اسکریپت‌های موجود
+## 📜 اسکریپت‌های موجود
 
+**روی سرور خارج:**
 - **install-xray-reality-en.sh** - نصب خودکار Xray Reality (انگلیسی)
 - **install-panel.sh** - نصب پنل وب 3X-UI
 - **optimize-speed.sh** - بهینه‌سازی سرعت و شبکه
 - **manage-users.sh** - مدیریت کاربران
 - **fix-ssh.sh** - رفع مشکلات SSH
 
+**روی دستگاه خانگی (برای کنسول):**
+- **playstation/install-ps-gateway.sh** - نصب دروازه پلی‌استیشن
+- **playstation/manage-ps.sh** - منوی مدیریت دروازه
+- **playstation/check-psn.sh** - تست و عیب‌یابی دسترسی به PSN
+
 📖 **راهنماها:**
 - [README-FA.md](README-FA.md) - راهنمای کامل فارسی
 - [INSTALL-GUIDE.md](INSTALL-GUIDE.md) - راهنمای نصب گام‌به‌گام
 - [PANEL-GUIDE.md](PANEL-GUIDE.md) - راهنمای پنل 3X-UI
+- [PLAYSTATION-GUIDE.md](PLAYSTATION-GUIDE.md) - راهنمای باز کردن پلی‌استیشن 🎮
 
 ---
 
-## �🚀 نصب سریع
+## 🚀 نصب سریع
 
 ### مرحله 1: اتصال به سرور
 
