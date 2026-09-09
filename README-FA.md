@@ -344,8 +344,8 @@ cd android
 ./gradlew assembleDebug
 ```
 
-یا فایل `android/ci/android.yml` را در `.github/workflows/` بگذارید تا
-GitHub Actions خودش APK را بسازد.
+یا فایل ساخته‌شده را از تب Actions مخزن دانلود کنید؛ GitHub با هر تغییر
+در پوشه `android/` خودش APK را می‌سازد.
 
 📖 راهنمای کامل: [ANDROID-GUIDE.md](ANDROID-GUIDE.md)
 

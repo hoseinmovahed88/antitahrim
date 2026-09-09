@@ -106,21 +106,23 @@
 
 ### راه ۱: با GitHub Actions (بدون نصب چیزی)
 
-فایل گردش‌کار آماده است ولی من اجازه نوشتن در پوشه `.github/workflows` را
-نداشتم، پس خودتان باید یک بار جابه‌جایش کنید:
+گردش‌کار روی مخزن فعال است. هر بار که چیزی در پوشه `android/` یا `tools/`
+عوض شود، GitHub خودش برنامه را می‌سازد.
 
-```bash
-mkdir -p .github/workflows
-cp android/ci/android.yml .github/workflows/android.yml
-git add .github/workflows/android.yml
-git commit -m "ci: add android build workflow"
-git push
-```
+برای گرفتن فایل نصبی:
 
-بعد از پوش، در تب **Actions** مخزن، هر بار که چیزی در پوشه `android/` عوض شود
-برنامه ساخته می‌شود و فایل APK را می‌توانید از بخش Artifacts دانلود کنید.
+1. به تب **Actions** مخزن بروید.
+2. آخرین اجرای گردش‌کار **Android** را باز کنید.
+3. از بخش **Artifacts** فایل `azad-apk` را دانلود کنید.
 
-این گردش‌کار سه کار می‌کند:
+داخلش دو فایل هست: `app-debug.apk` برای امتحان کردن، و `app-release.apk`
+که کوچک‌تر و بهینه‌شده است. هر دو با کلید دیباگ امضا شده‌اند، پس روی گوشی
+نصب می‌شوند ولی برای انتشار در فروشگاه مناسب نیستند.
+
+می‌توانید بدون تغییر دادن کد هم دستی اجرایش کنید: در تب Actions، گردش‌کار
+Android را انتخاب کنید و **Run workflow** بزنید.
+
+گردش‌کار سه کار می‌کند:
 - تست‌های واحد را اجرا می‌کند
 - APK دیباگ و ریلیز می‌سازد
 - در یک کار جداگانه، ثبت‌نام واقعی WARP را امتحان می‌کند تا اگر Cloudflare
@@ -207,7 +209,7 @@ cd android
 **تست نشده:**
 - خود درخواست ثبت‌نام به Cloudflare. محیطی که این کد در آن نوشته شد اجازه
   خروج به آن میزبان را نمی‌داد. کار `warp-api` در گردش‌کار CI دقیقاً برای
-  همین گذاشته شده؛ اولین اجرا این را روشن می‌کند.
+  همین گذاشته شده و نتیجه‌اش را در تب Actions می‌بینید.
 - رفتار برنامه روی گوشی واقعی.
 - صفحه رابط کاربری کامپایل نشده، چون کتابخانه‌های اندروید در آن محیط
   در دسترس نبودند.
@@ -239,5 +241,6 @@ possible for the tunnel. For the one HTTPS call that does exist, the first TLS
 record is split across several TCP segments, which hides the server name from
 inspection entirely instead of replacing it.
 
-Build it with Android Studio, or copy `android/ci/android.yml` into
-`.github/workflows/` and let GitHub Actions produce the APK.
+GitHub Actions builds the APK on every push to `android/`. Download it from
+the Artifacts section of the latest Android workflow run, or build it yourself
+with Android Studio.
