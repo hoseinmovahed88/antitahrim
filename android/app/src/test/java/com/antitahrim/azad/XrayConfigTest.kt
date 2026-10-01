@@ -33,16 +33,24 @@ class XrayConfigTest {
         assertFalse("geosite: به فایل داده نیاز دارد", text.contains("geosite:"))
     }
 
+    private fun rulesOf(config: JSONObject): List<JSONObject> {
+        val rules = config.getJSONObject("routing").getJSONArray("rules")
+        return (0 until rules.length()).map { rules.getJSONObject(it) }
+    }
+
     @Test
     fun `local destinations are routed around the tunnel`() {
         val config = build("vless://id@example.com:443#s")
-        val rules = config.getJSONObject("routing").getJSONArray("rules")
-        assertTrue(rules.length() >= 1)
+        val privateRule = rulesOf(config).first { rule ->
+            rule.has("ip") && rule.getJSONArray("ip").let { ips ->
+                (0 until ips.length()).any { ips.getString(it) == "10.0.0.0/8" }
+            }
+        }
 
-        val ips = rules.getJSONObject(0).getJSONArray("ip")
+        val ips = privateRule.getJSONArray("ip")
         val listed = (0 until ips.length()).map { ips.getString(it) }
 
-        assertEquals("direct", rules.getJSONObject(0).getString("outboundTag"))
+        assertEquals("direct", privateRule.getString("outboundTag"))
         for (expected in listOf("10.0.0.0/8", "127.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12")) {
             assertTrue("$expected باید مستقیم برود", listed.contains(expected))
         }
@@ -116,9 +124,55 @@ class XrayConfigTest {
     @Test
     fun `without the option nothing iranian is routed around the tunnel`() {
         val config = build("vless://id@example.com:443#s")
-        val text = config.toString()
-        assertFalse(text.contains("domain:ir"))
-        assertEquals(1, config.getJSONObject("routing").getJSONArray("rules").length())
+        assertFalse(config.toString().contains("domain:ir"))
+        // فقط DNS، مقصدهای محلی، و بستن QUIC
+        assertEquals(3, rulesOf(config).size)
+    }
+
+    /**
+     * از یک گزارش واقعی: لینک trojan بدون security، با متن ساده به پورت
+     * TLS وصل شد، وب‌سرور جایگزین «400» داد و برنامه «وصل» اعلام کرد.
+     */
+    @Test
+    fun `trojan without a security parameter still uses tls`() {
+        val config = build("trojan://pw@3.120.109.26:443?sni=a.example#s")
+        val stream = config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+        assertEquals("tls", stream.getString("security"))
+        assertEquals("a.example", stream.getJSONObject("tlsSettings").getString("serverName"))
+    }
+
+    @Test
+    fun `vless without a security parameter stays plain`() {
+        val config = build("vless://id@example.com:80?type=ws#s")
+        val stream = config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+        assertEquals("none", stream.getString("security"))
+    }
+
+    /**
+     * DNS باید پیش از هر قاعده دیگری به DNS خود هسته برود. اگر بعد از
+     * قاعده دیگری بیاید، ممکن است پرس‌وجو جای دیگری برود و به شکل UDP خام
+     * به سروری برسد که UDP رد نمی‌کند.
+     */
+    @Test
+    fun `dns goes to the core resolver first`() {
+        val config = build("vless://id@example.com:443#s")
+        val first = rulesOf(config).first()
+        assertEquals("53", first.getString("port"))
+        assertEquals("dns-out", first.getString("outboundTag"))
+
+        val outbounds = config.getJSONArray("outbounds")
+        val tags = (0 until outbounds.length()).map { outbounds.getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("dns-out"))
+        assertEquals("UseIPv4", config.getJSONObject("dns").getString("queryStrategy"))
+    }
+
+    @Test
+    fun `quic is blocked so apps fall back to tcp at once`() {
+        val config = build("vless://id@example.com:443#s")
+        val quic = rulesOf(config).last()
+        assertEquals("udp", quic.getString("network"))
+        assertEquals("443", quic.getString("port"))
+        assertEquals("block", quic.getString("outboundTag"))
     }
 
     /**

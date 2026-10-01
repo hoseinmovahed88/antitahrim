@@ -46,6 +46,7 @@ object XrayConfig {
     )
 
     private const val FRAGMENT_TAG = "fragment"
+    private const val DNS_TAG = "dns-out"
 
     /** دامنه‌های سطح بالای ایران: ir و معادل فارسی‌اش به شکل punycode. */
     private val IRAN_TLDS = listOf("ir", "xn--mgba3a4f16a")
@@ -97,8 +98,11 @@ object XrayConfig {
             .put(outbound(link, serverIp, useFragment))
             .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
             .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+            .put(JSONObject().put("tag", DNS_TAG).put("protocol", "dns"))
         if (useFragment) outbounds.put(fragmentOutbound())
         root.put("outbounds", outbounds)
+
+        root.put("dns", dns())
 
         root.put(
             "routing",
@@ -122,6 +126,18 @@ object XrayConfig {
     private fun rules(iranDirect: IranList.Lists?): JSONArray {
         val rules = JSONArray()
 
+        // هر پرس‌وجوی DNS، از هر برنامه‌ای، به بخش DNS خود هسته می‌رود.
+        // آنجا با DoH و از روی همان اتصال TCP سرور حل می‌شود. اگر این نبود،
+        // DNS به شکل UDP خام به سرور فرستاده می‌شد و خیلی از سرورهای رایگان
+        // اصلاً UDP رد نمی‌کنند؛ برنامه‌ها هیچ نامی را حل نمی‌کردند و تونل
+        // «وصل» بود و هیچ سایتی باز نمی‌شد.
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("port", "53")
+                .put("outboundTag", DNS_TAG)
+        )
+
         // مقصدهای محلی هیچ‌وقت نباید وارد تونل شوند، وگرنه حلقه می‌سازند
         rules.put(
             JSONObject()
@@ -130,8 +146,24 @@ object XrayConfig {
                 .put("outboundTag", "direct")
         )
 
-        if (iranDirect == null || iranDirect.isEmpty) return rules
+        if (iranDirect != null && !iranDirect.isEmpty) addIranRules(rules, iranDirect)
 
+        // QUIC روی UDP 443 بسته می‌شود. یوتیوب و کروم اول QUIC را امتحان
+        // می‌کنند؛ اگر سرور UDP رد نکند، چند ثانیه منتظر می‌مانند تا به TCP
+        // برگردند. بستنش یعنی برگشت فوری به TCP، که همیشه از سرور رد می‌شود.
+        // بعد از قواعد ایران می‌آید تا QUIC مقصدهای ایرانی مستقیم برود.
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("network", "udp")
+                .put("port", "443")
+                .put("outboundTag", "block")
+        )
+
+        return rules
+    }
+
+    private fun addIranRules(rules: JSONArray, iranDirect: IranList.Lists) {
         // دامنه‌های ir و ایران. دو سطر، جای شصت هزار سطر.
         val domains = JSONArray()
         IRAN_TLDS.forEach { domains.put("domain:" + it) }
@@ -153,9 +185,24 @@ object XrayConfig {
                     .put("outboundTag", "direct")
             )
         }
-
-        return rules
     }
+
+    /**
+     * DNS خود هسته. پرس‌وجوها با DoH و از مسیر سرور رد می‌شوند، پس نه
+     * DNS آلوده اپراتور دخالت دارد و نه لازم است سرور UDP پشتیبانی کند.
+     *
+     * فقط IPv4 برگردانده می‌شود. خیلی از سرورهای رایگان IPv6 ندارند؛ اگر
+     * برنامه‌ای آدرس IPv6 بگیرد اول آن را امتحان می‌کند، شکست می‌خورد و
+     * تازه بعد از مکث سراغ IPv4 می‌رود.
+     */
+    private fun dns(): JSONObject = JSONObject()
+        .put(
+            "servers",
+            JSONArray()
+                .put("https://1.1.1.1/dns-query")
+                .put("https://8.8.8.8/dns-query")
+        )
+        .put("queryStrategy", "UseIPv4")
 
     private fun outbound(link: ConfigLink, serverIp: String?, viaFragment: Boolean): JSONObject {
         val stream = streamSettings(link)
@@ -203,8 +250,27 @@ object XrayConfig {
         )
 
     private fun usesTls(link: ConfigLink): Boolean {
-        val security = link.params["security"].orEmpty()
-        return security == "tls" || security == "reality" || security == "true"
+        val security = effectiveSecurity(link)
+        return security == "tls" || security == "reality"
+    }
+
+    /**
+     * لایه امنیتی واقعی اتصال به سرور.
+     *
+     * Trojan همیشه روی TLS است و خیلی از لینک‌ها اصلاً security را نمی‌نویسند.
+     * خواندن این نبود به معنای «بدون رمزنگاری» یک باگ واقعی ساخت: برنامه با
+     * متن ساده به پورت TLS سرور حرف زد، وب‌سرور جایگزین سرور با
+     * «HTTP/1.1 400 Bad Request» جواب داد، و سنجه آن را موفقیت شمرد. نتیجه
+     * «وصل شد» بود بدون اینکه یک بایت داده رد شود.
+     */
+    private fun effectiveSecurity(link: ConfigLink): String {
+        val raw = link.params["security"].orEmpty()
+        return when {
+            // vmess تنها مقدار "tls" را می‌گذارد و گاهی true
+            raw == "true" -> "tls"
+            raw.isBlank() && link.protocol == "trojan" -> "tls"
+            else -> raw
+        }
     }
 
     private fun settings(link: ConfigLink, address: String): JSONObject = when (link.protocol) {
@@ -262,10 +328,7 @@ object XrayConfig {
 
     private fun streamSettings(link: ConfigLink): JSONObject {
         val network = link.params["type"] ?: link.params["net"] ?: "tcp"
-        val security = link.params["security"].orEmpty().let {
-            // vmess تنها مقدار "tls" را می‌گذارد و گاهی خالی است
-            if (it == "true") "tls" else it
-        }
+        val security = effectiveSecurity(link)
 
         val stream = JSONObject()
             .put("network", if (network == "none") "tcp" else network)
