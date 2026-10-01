@@ -29,11 +29,17 @@ jobs:
         with:
           go-version: '1.24'
 
+      # packages خالی لازم است. مقدار پیش‌فرض این اکشن بسته قدیمی tools را
+      # نصب می‌کند، و آن بسته از مخزن گوگل حذف شده. نتیجه‌اش شکست sdkmanager
+      # با پیام «Failed to find package 'tools'» است، پیش از آنکه کار ما
+      # شروع شود. هرچه لازم داریم را خودمان در گام بعد نصب می‌کنیم.
       - name: نصب Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: نصب NDK
-        run: sdkmanager --install "ndk;27.2.12479018"
+        run: sdkmanager --install "ndk;27.2.12479018" "platform-tools"
 
       - name: نصب gomobile
         run: |
@@ -89,6 +95,12 @@ jobs:
 
       - name: نصب Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      # صریح نصب می‌شود تا به دانلود خودکار Gradle تکیه نکنیم.
+      - name: نصب ابزارهای ساخت
+        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: آماده‌سازی Gradle
         uses: gradle/actions/setup-gradle@v4
