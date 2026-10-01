@@ -47,6 +47,40 @@ class XrayConfigTest {
         }
     }
 
+    /**
+     * اگر آی‌پی سنجیده‌شده داده شود، هسته باید به همان وصل شود، ولی نام
+     * میزبان باید دست‌نخورده در SNI بماند. اگر نام به SNI نرسد، دست‌دادن
+     * TLS سمت سرور رد می‌شود و از بیرون شبیه «سرور خراب» دیده می‌شود.
+     */
+    @Test
+    fun `a verified address is used for dialing while the name stays in the sni`() {
+        val link = requireNotNull(
+            ConfigLink.parse("vless://id@example.com:443?security=tls&sni=example.com#s")
+        )
+        val config = JSONObject(XrayConfig.build(link, 10808, "203.0.113.9"))
+        val outbound = config.getJSONArray("outbounds").getJSONObject(0)
+
+        val server = outbound.getJSONObject("settings")
+            .getJSONArray("vnext")
+            .getJSONObject(0)
+        assertEquals("203.0.113.9", server.getString("address"))
+        assertEquals(443, server.getInt("port"))
+
+        val tls = outbound.getJSONObject("streamSettings").getJSONObject("tlsSettings")
+        assertEquals("example.com", tls.getString("serverName"))
+    }
+
+    /** بدون آی‌پی، همان نام میزبان لینک به کار می‌رود. */
+    @Test
+    fun `without a verified address the host name is dialed`() {
+        val config = build("vless://id@example.com:443#s")
+        val server = config.getJSONArray("outbounds").getJSONObject(0)
+            .getJSONObject("settings")
+            .getJSONArray("vnext")
+            .getJSONObject(0)
+        assertEquals("example.com", server.getString("address"))
+    }
+
     @Test
     fun `the socks inbound listens on the port the bridge will use`() {
         val config = build("vless://id@example.com:443#s")

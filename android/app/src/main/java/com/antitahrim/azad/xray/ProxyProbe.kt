@@ -20,7 +20,7 @@ import java.net.Socket
 object ProxyProbe {
 
     private const val CONNECT_TIMEOUT_MS = 4000
-    private const val READ_TIMEOUT_MS = 8000
+    private const val READ_TIMEOUT_MS = 6000
 
     /** میزبانی که پاسخ کوتاه و بدون محتوا می‌دهد، پس تست سبک می‌ماند. */
     private const val TEST_HOST = "connectivitycheck.gstatic.com"

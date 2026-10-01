@@ -66,6 +66,9 @@ class VpnManager private constructor(context: Context) {
     /** چند نقطه اتصال قبل از تسلیم شدن امتحان شود. */
     private val scanBudget = 22
 
+    /** چند سرور Xray با تونل واقعی امتحان شود، نه فقط با غربال TCP. */
+    private val fullAttempts = 6
+
     private fun onBackendState(newState: Tunnel.State) {
         if (newState == Tunnel.State.DOWN && _state.value is State.Connected) {
             Report.log("تونل از بیرون قطع شد")
@@ -122,52 +125,81 @@ class VpnManager private constructor(context: Context) {
                 return
             }
 
-            val best = ranked.first()
-            Report.log("سریع‌ترین سرور: " + best.link.label + " با " + best.latencyMs + " میلی‌ثانیه")
+            // غربال TCP فقط می‌گوید پورت باز است. خیلی از این سرورها
+            // پورتشان باز است و دست‌دادن رمزنگاری‌شان شکست می‌خورد، یا کلید
+            // و شناسه‌شان منقضی شده. پس سریع‌ترین سرور لزوماً کار نمی‌کند و
+            // تکیه بر یک نامزد یعنی شکست کل اتصال با اولین سرور خراب.
+            // به جایش چند نامزد اول یکی‌یکی تا آخر امتحان می‌شوند و فقط
+            // آنی می‌ماند که ترافیک واقعی از آن عبور کند.
+            val attempts = ranked.take(fullAttempts)
+            Report.log("امتحان کامل روی " + attempts.size + " نامزد اول")
 
-            val config = XrayConfig.build(best.link, AzadVpnService.DEFAULT_SOCKS_PORT)
-            AzadVpnService.start(
-                appContext,
-                config,
-                AzadVpnService.DEFAULT_SOCKS_PORT,
-                best.link.label
-            )
-
-            when (val outcome = awaitTunnel()) {
-                is TunnelOutcome.Failed -> {
-                    _state.value = State.Failed(outcome.message)
-                    return
-                }
-
-                TunnelOutcome.TimedOut -> {
-                    AzadVpnService.stop(appContext)
-                    _state.value = State.Failed("تونل در زمان مقرر بالا نیامد.")
-                    return
-                }
-
-                TunnelOutcome.Established -> Unit
-            }
-
-            // بالا آمدن تونل کافی نیست. تا وقتی یک بسته واقعی رفت و برنگردد
-            // نمی‌شود گفت وصل شده‌ایم. همان اشتباهی که مسیر WARP از آن در امان
-            // بود و اینجا تکرار شده بود.
-            if (!trafficFlows()) {
-                AzadVpnService.stop(appContext)
-                _state.value = State.Failed(
-                    "تونل ساخته شد ولی هیچ ترافیکی از آن عبور نکرد. سرور جواب نمی‌دهد."
+            attempts.forEachIndexed { index, candidate ->
+                _state.value = State.Scanning(index + 1, attempts.size, candidate.link.label)
+                Report.log(
+                    "نامزد " + (index + 1) + ": " + candidate.link.label +
+                        " [" + candidate.ip + "] " + candidate.latencyMs + " میلی‌ثانیه"
                 )
-                return
+
+                if (tryXrayServer(candidate)) {
+                    store.workingEndpoint = candidate.link.key
+                    _state.value = State.Connected(candidate.link.label)
+                    Report.log("وصل شد به " + candidate.link.label)
+                    return
+                }
+
+                // پیش از نامزد بعدی، سرویس و هسته باید کامل پایین بیایند
+                AzadVpnService.stop(appContext)
+                delay(1_200)
             }
 
-            store.workingEndpoint = best.link.key
-            _state.value = State.Connected(best.link.label)
-            Report.log("وصل شد به " + best.link.label)
+            _state.value = State.Failed(
+                "از " + attempts.size + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
+                    "دوباره بزنید تا سرورهای تازه امتحان شوند."
+            )
         } catch (e: Throwable) {
             Report.logError("اتصال Xray", e)
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
         }
     }
 
+
+    /**
+     * یک سرور را تا آخر امتحان می‌کند: تونل بالا بیاید و ترافیک واقعی از آن
+     * عبور کند. اگر هر کدام نشد، false و دلیلش در گزارش.
+     */
+    private suspend fun tryXrayServer(candidate: ServerTester.Result): Boolean {
+        val config = XrayConfig.build(
+            candidate.link,
+            AzadVpnService.DEFAULT_SOCKS_PORT,
+            candidate.ip
+        )
+        AzadVpnService.start(
+            appContext,
+            config,
+            AzadVpnService.DEFAULT_SOCKS_PORT,
+            candidate.link.label
+        )
+
+        when (val outcome = awaitTunnel()) {
+            is TunnelOutcome.Failed -> {
+                Report.log("این نامزد رد شد: " + outcome.message)
+                return false
+            }
+
+            TunnelOutcome.TimedOut -> {
+                Report.log("این نامزد در زمان مقرر تونل نساخت")
+                return false
+            }
+
+            TunnelOutcome.Established -> Unit
+        }
+
+        // بالا آمدن تونل کافی نیست. تا وقتی یک بسته واقعی رفت و برنگردد
+        // نمی‌شود گفت وصل شده‌ایم. همان اشتباهی که مسیر WARP از آن در امان
+        // بود و اینجا تکرار شده بود.
+        return trafficFlows()
+    }
 
     private sealed interface TunnelOutcome {
         data object Established : TunnelOutcome
@@ -181,7 +213,7 @@ class VpnManager private constructor(context: Context) {
      * راه‌اندازی سرویس با یک intent انجام می‌شود و بلافاصله برمی‌گردد، پس
      * بدون این انتظار، برنامه پیش از آنکه چیزی ساخته شود «متصل» اعلام می‌کرد.
      */
-    private suspend fun awaitTunnel(timeoutMs: Long = 25_000): TunnelOutcome {
+    private suspend fun awaitTunnel(timeoutMs: Long = 20_000): TunnelOutcome {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             when (val serviceState = AzadVpnService.state.value) {
@@ -202,12 +234,15 @@ class VpnManager private constructor(context: Context) {
      * Xray تا سرور را واقعاً می‌سنجد.
      */
     private suspend fun trafficFlows(): Boolean {
-        repeat(4) { attempt ->
+        // دو تلاش و نه بیشتر. هر تلاش ناموفق چند ثانیه می‌گیرد و چند نامزد
+        // پشت سر این صف ایستاده‌اند؛ سروری که دو بار جواب نداد را رها
+        // می‌کنیم و وقت را روی نامزد بعدی می‌گذاریم.
+        repeat(2) { attempt ->
             if (ProxyProbe.trafficFlows(AzadVpnService.DEFAULT_SOCKS_PORT)) {
                 Report.log("ترافیک از سرور عبور کرد")
                 return true
             }
-            if (attempt < 3) delay(1_500)
+            if (attempt < 1) delay(1_000)
         }
         Report.log("تونل بالا آمد ولی ترافیکی از سرور عبور نکرد")
         return false

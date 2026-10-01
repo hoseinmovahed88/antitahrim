@@ -7,6 +7,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -28,7 +29,10 @@ object ServerTester {
 
     private const val CONNECT_TIMEOUT_MS = 2500
 
-    data class Result(val link: ConfigLink, val latencyMs: Long)
+    /**
+     * @param ip آی‌پی‌ای که میزبان به آن ترجمه شد و اتصال با آن برقرار شد
+     */
+    data class Result(val link: ConfigLink, val latencyMs: Long, val ip: String)
 
     /**
      * سرورها را موازی تست می‌کند و آنهایی که پاسخ دادند را از سریع‌ترین به
@@ -63,14 +67,37 @@ object ServerTester {
         sorted
     }
 
-    /** یک اتصال TCP ساده. اگر برقرار شد، زمانش را برمی‌گرداند. */
+    /**
+     * یک اتصال TCP ساده. اگر برقرار شد، زمانش و آی‌پی مقصد را برمی‌گرداند.
+     *
+     * آی‌پی را نگه می‌داریم چون بعداً همان را به هسته می‌دهیم، نه نام میزبان
+     * را. دو سود دارد: هسته مجبور نیست خودش نام را ترجمه کند، و مهم‌تر از
+     * آن، به سراغ همان آدرسی می‌رود که اینجا ثابت شد از این شبکه قابل
+     * دسترسی است.
+     */
     private fun probe(link: ConfigLink): Result? {
         val started = System.nanoTime()
         return try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(link.host, link.port), CONNECT_TIMEOUT_MS)
+            val address = InetSocketAddress(link.host, link.port)
+            if (address.isUnresolved) return null
+            val resolved: InetAddress = address.address ?: return null
+            val ip = resolved.hostAddress ?: return null
+
+            // ترجمه‌ای که به رنج محلی برسد یعنی پاسخ DNS دستکاری شده. در
+            // ایران فیلترینگ به جای آدرس واقعی آدرس‌هایی مثل 10.10.34.36
+            // برمی‌گرداند، و آن آدرس پورت را هم باز می‌گذارد. بدون این
+            // بررسی، چنین میزبانی «زنده و سریع» شمرده می‌شود چون جواب از
+            // چند کیلومتری می‌آید، بعد همان انتخاب می‌شود و هیچ ترافیکی از
+            // آن عبور نمی‌کند.
+            if (isLocalOrReserved(resolved)) {
+                Report.log("پاسخ DNS دستکاری‌شده برای " + link.host + ": " + ip)
+                return null
             }
-            Result(link, (System.nanoTime() - started) / 1_000_000)
+
+            Socket().use { socket ->
+                socket.connect(address, CONNECT_TIMEOUT_MS)
+            }
+            Result(link, (System.nanoTime() - started) / 1_000_000, ip)
         } catch (e: IOException) {
             null
         } catch (e: SecurityException) {
@@ -80,4 +107,11 @@ object ServerTester {
             null
         }
     }
+
+    private fun isLocalOrReserved(address: InetAddress): Boolean =
+        address.isSiteLocalAddress ||
+            address.isLoopbackAddress ||
+            address.isLinkLocalAddress ||
+            address.isAnyLocalAddress ||
+            address.isMulticastAddress
 }

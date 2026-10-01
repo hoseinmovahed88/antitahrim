@@ -47,8 +47,11 @@ object XrayConfig {
     /**
      * @param socksPort پورتی که پل tun2socks به آن وصل می‌شود
      * @param link سروری که ترافیک از آن بیرون می‌رود
+     * @param serverIp اگر داده شود، هسته به جای ترجمه دوباره نام میزبان
+     *   مستقیم به همین آدرس وصل می‌شود. نام میزبان همان‌جا که باید بماند
+     *   می‌ماند، یعنی در SNI و در هدر Host، پس چیزی برای DPI عوض نمی‌شود.
      */
-    fun build(link: ConfigLink, socksPort: Int): String {
+    fun build(link: ConfigLink, socksPort: Int, serverIp: String? = null): String {
         val root = JSONObject()
 
         root.put("log", JSONObject().put("loglevel", "warning"))
@@ -77,7 +80,7 @@ object XrayConfig {
         root.put(
             "outbounds",
             JSONArray()
-                .put(outbound(link))
+                .put(outbound(link, serverIp))
                 .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
                 .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
         )
@@ -104,21 +107,21 @@ object XrayConfig {
         return root.toString()
     }
 
-    private fun outbound(link: ConfigLink): JSONObject {
+    private fun outbound(link: ConfigLink, serverIp: String?): JSONObject {
         val outbound = JSONObject()
             .put("tag", "proxy")
             .put("protocol", link.protocol)
-            .put("settings", settings(link))
+            .put("settings", settings(link, serverIp ?: link.host))
             .put("streamSettings", streamSettings(link))
         return outbound
     }
 
-    private fun settings(link: ConfigLink): JSONObject = when (link.protocol) {
+    private fun settings(link: ConfigLink, address: String): JSONObject = when (link.protocol) {
         "vless" -> JSONObject().put(
             "vnext",
             JSONArray().put(
                 JSONObject()
-                    .put("address", link.host)
+                    .put("address", address)
                     .put("port", link.port)
                     .put(
                         "users",
@@ -139,7 +142,7 @@ object XrayConfig {
             "vnext",
             JSONArray().put(
                 JSONObject()
-                    .put("address", link.host)
+                    .put("address", address)
                     .put("port", link.port)
                     .put(
                         "users",
@@ -157,7 +160,7 @@ object XrayConfig {
             "servers",
             JSONArray().put(
                 JSONObject()
-                    .put("address", link.host)
+                    .put("address", address)
                     .put("port", link.port)
                     .put("password", link.id)
             )
