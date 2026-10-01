@@ -3,7 +3,9 @@ package com.antitahrim.azad.vpn
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import azadcore.Azadcore
 import com.antitahrim.azad.R
+import com.antitahrim.azad.core.CoreCrash
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.net.IranDns
 import com.antitahrim.azad.net.IranList
@@ -206,10 +208,13 @@ class VpnManager private constructor(context: Context) {
                 return
             }
 
-            failXray(
-                "از " + minOf(ranked.size, fullAttempts) + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
-                    "دوباره بزنید تا سرورهای تازه امتحان شوند."
-            )
+            // اگر ساخت رابط VPN خودش شکست خورده، پیام دقیق‌ترش از قبل ثبت شده
+            if (_state.value !is State.Failed) {
+                failXray(
+                    "از " + minOf(ranked.size, fullAttempts) + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
+                        "دوباره بزنید تا سرورهای تازه امتحان شوند."
+                )
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -266,6 +271,14 @@ class VpnManager private constructor(context: Context) {
             )
 
             if (tryXrayServer(candidate)) {
+                // سرور ثابت کرد ترافیک رد می‌کند؛ حالا و فقط حالا رابط VPN
+                // ساخته می‌شود. اگر از قبل برقرار است (جابه‌جایی سرور)، پل
+                // همان پورت را می‌شناسد و دست زدن به آن لازم نیست.
+                if (!AzadVpnService.isEstablished() && !bringUpInterface(candidate.link.label)) {
+                    runCatching { Azadcore.stopXray() }
+                    return false
+                }
+
                 // وصل شدیم؛ دیگر هیچ سروری «وسط امتحان» نیست
                 recentlyTried.clear()
                 store.serversInFlight = emptyList()
@@ -281,11 +294,25 @@ class VpnManager private constructor(context: Context) {
                 return true
             }
 
-            // پیش از نامزد بعدی، هسته و پل باید کامل پایین بیایند. سرویس
-            // خودش سر جایش می‌ماند تا اعلان و پیش‌زمینه از دست نرود.
-            delay(800)
+            runCatching { Azadcore.stopXray() }
         }
         return false
+    }
+
+    /** رابط VPN را می‌سازد و صبر می‌کند تا واقعاً برقرار شود. */
+    private suspend fun bringUpInterface(label: String): Boolean {
+        AzadVpnService.establish(appContext, AzadVpnService.DEFAULT_SOCKS_PORT, label)
+        return when (val outcome = awaitTunnel()) {
+            TunnelOutcome.Established -> true
+            is TunnelOutcome.Failed -> {
+                failXray(outcome.message)
+                false
+            }
+            TunnelOutcome.TimedOut -> {
+                failXray("رابط VPN در زمان مقرر ساخته نشد.")
+                false
+            }
+        }
     }
 
     /**
@@ -307,30 +334,21 @@ class VpnManager private constructor(context: Context) {
             if (store.domesticDirect) IranList.load(appContext) else null,
             fragment = store.fragmentTls
         )
-        AzadVpnService.start(
-            appContext,
-            config,
-            AzadVpnService.DEFAULT_SOCKS_PORT,
-            candidate.link.label
-        )
 
-        when (val outcome = awaitTunnel()) {
-            is TunnelOutcome.Failed -> {
-                Report.log("این نامزد رد شد: " + outcome.message)
-                return false
-            }
-
-            TunnelOutcome.TimedOut -> {
-                Report.log("این نامزد در زمان مقرر تونل نساخت")
-                return false
-            }
-
-            TunnelOutcome.Established -> Unit
+        // امتحان فقط با خود هسته، بدون رابط VPN. برنامه از VPN کنار گذاشته
+        // شده و سنجه مستقیم به پروکسی محلی وصل می‌شود، پس رابط VPN در این
+        // امتحان هیچ نقشی ندارد. نبودنش یعنی بقیه برنامه‌های گوشی در طول
+        // جست‌وجو اینترنت عادی‌شان را دارند، نه یک تونل مرده.
+        CoreCrash.install(appContext)
+        runCatching { Azadcore.stopXray() }
+        try {
+            Azadcore.startXray(config)
+        } catch (e: Throwable) {
+            Report.logError("بالا آوردن هسته", e)
+            return false
         }
+        Report.log("هسته Xray بالا آمد، نسخه " + Azadcore.xrayVersion() + "، طول کانفیگ " + config.length)
 
-        // بالا آمدن تونل کافی نیست. تا وقتی یک بسته واقعی رفت و برنگردد
-        // نمی‌شود گفت وصل شده‌ایم. همان اشتباهی که مسیر WARP از آن در امان
-        // بود و اینجا تکرار شده بود.
         return trafficFlows()
     }
 
@@ -397,7 +415,9 @@ class VpnManager private constructor(context: Context) {
                     }
                     misses = 0
                     if (!switchServer()) {
-                        failXray("ارتباط با سرور قطع شد و سرور جایگزینی پیدا نشد. دوباره بزنید.")
+                        if (_state.value !is State.Failed) {
+                            failXray("ارتباط با سرور قطع شد و سرور جایگزینی پیدا نشد. دوباره بزنید.")
+                        }
                         return@launch
                     }
                     lastPoolRefresh = System.currentTimeMillis()
@@ -511,7 +531,7 @@ class VpnManager private constructor(context: Context) {
             }
             if (attempt < 1) delay(1_000)
         }
-        Report.log("تونل بالا آمد ولی ترافیکی از سرور عبور نکرد")
+        Report.log("هسته بالا آمد ولی ترافیکی از سرور عبور نکرد")
         return false
     }
 

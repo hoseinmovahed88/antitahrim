@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import azadcore.Azadcore
 import com.antitahrim.azad.R
-import com.antitahrim.azad.core.CoreCrash
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.warp.Store
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,34 +62,21 @@ class AzadVpnService : VpnService() {
                 return START_NOT_STICKY
             }
 
-            ACTION_START -> {
-                // کانفیگ از راه یک فیلد ایستا می‌آید نه از extra خود intent.
-                // با فهرست سایت‌های ایرانی کانفیگ به حدود یک مگابایت می‌رسد،
-                // و intent از مرز Binder رد می‌شود که سقفش همین حدود است؛
-                // نتیجه‌اش TransactionTooLargeException بود. سرویس در همان
-                // فرایند است، پس فیلد ایستا بی‌خطر است.
-                val config = pendingConfig
-                pendingConfig = null
+            ACTION_ESTABLISH -> {
                 val socksPort = intent.getIntExtra(EXTRA_SOCKS_PORT, DEFAULT_SOCKS_PORT)
                 val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
 
-                // پیش از هر بررسی دیگری. سرویسی که با startForegroundService
+                // پیش از هر کار دیگری. سرویسی که با startForegroundService
                 // شروع شده باید ظرف چند ثانیه startForeground را صدا بزند،
                 // وگرنه اندروید کل برنامه را با استثنایی می‌کشد که هیچ‌جا
-                // گرفتنی نیست؛ حتی اگر بعدش بلافاصله کار را رها کنیم.
+                // گرفتنی نیست.
                 running = true
                 if (wantsForeground(intent)) {
                     goForeground(getString(R.string.state_connecting_to, label), connected = false)
                 }
 
-                if (config.isNullOrBlank()) {
-                    _state.value = State.Failed("کانفیگ خالی بود")
-                    return START_NOT_STICKY
-                }
-
-                // بالا آوردن هسته چند ثانیه طول می‌کشد. روی نخ اصلی
-                // انجامش دادن یعنی ANR، پس به یک نخ جدا می‌رود.
-                Thread { startTunnel(config, socksPort, label) }.start()
+                // ساخت رابط چند صد میلی‌ثانیه طول می‌کشد؛ روی نخ اصلی نه
+                Thread { establishBridge(socksPort, label) }.start()
                 return START_NOT_STICKY
             }
         }
@@ -153,25 +139,32 @@ class AzadVpnService : VpnService() {
         }
     }
 
-    private fun startTunnel(config: String, socksPort: Int, label: String) {
-        shutdown()
+    /**
+     * رابط VPN را می‌سازد و پل tun2socks را به پروکسی محلی وصل می‌کند.
+     *
+     * هسته Xray اینجا بالا آورده نمی‌شود. مدیر اتصال خودش هسته را با سرورهای
+     * نامزد امتحان می‌کند و فقط وقتی یکی واقعاً ترافیک رد کرد این را صدا
+     * می‌زند. پس رابط VPN در هر اتصال یک بار ساخته می‌شود، نه یک بار برای هر
+     * نامزد.
+     *
+     * قبلاً برای هر نامزد کل رابط و پل خراب و دوباره ساخته می‌شد. هر سه باری
+     * که برنامه بی‌صدا بسته شد درست بعد از ساخت دوباره رابط بود، و همان
+     * تعویض رابط شبکه گوشی را هم تکان می‌داد و درخواست‌های خود برنامه را با
+     * ENETUNREACH شکست می‌داد.
+     */
+    private fun establishBridge(socksPort: Int, label: String) {
+        runCatching { Azadcore.stop() }
         _state.value = State.Starting
 
-        Report.log("ساخت تونل، طول کانفیگ " + config.length)
-        CoreCrash.install(this)
         val descriptor = try {
-            Azadcore.startXray(config)
-            Report.log("هسته Xray بالا آمد، نسخه " + Azadcore.xrayVersion())
             establishTunnel()
         } catch (e: Throwable) {
-            Report.logError("بالا آوردن هسته", e)
-            runCatching { Azadcore.stopXray() }
+            Report.logError("ساخت رابط VPN", e)
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
             return
         }
 
         if (descriptor == null) {
-            runCatching { Azadcore.stopXray() }
             // establish فقط وقتی null می‌دهد که اجازه VPN نداشته باشیم یا
             // برنامه دیگری تونل را در دست گرفته باشد.
             _state.value = State.Failed(
@@ -188,13 +181,12 @@ class AzadVpnService : VpnService() {
             Report.logError("راه‌اندازی پل tun2socks", e)
             // اگر Go نگرفتش، خودمان توصیف‌گر را می‌بندیم تا نشت نکند
             runCatching { ParcelFileDescriptor.adoptFd(rawFd).close() }
-            runCatching { Azadcore.stopXray() }
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
             return
         }
 
         _state.value = State.Connected(label)
-        Report.log("تونل Xray برقرار شد: " + label)
+        Report.log("رابط VPN ساخته شد: " + label)
     }
 
     private fun establishTunnel(): ParcelFileDescriptor? {
@@ -240,7 +232,7 @@ class AzadVpnService : VpnService() {
 
     companion object {
         private const val ACTION_PREPARE = "com.antitahrim.azad.PREPARE"
-        private const val ACTION_START = "com.antitahrim.azad.START"
+        private const val ACTION_ESTABLISH = "com.antitahrim.azad.ESTABLISH"
         private const val ACTION_STOP = "com.antitahrim.azad.STOP"
         private const val ACTION_NOTIFICATION = "com.antitahrim.azad.NOTIFICATION"
         private const val EXTRA_SOCKS_PORT = "socks_port"
@@ -254,9 +246,6 @@ class AzadVpnService : VpnService() {
         private const val TUN_ADDRESS_V6 = "fd00:2026:a2ad::1"
         private const val TUN_PREFIX_V6 = 128
         private const val SESSION_NAME = "Azad"
-
-        @Volatile
-        private var pendingConfig: String? = null
 
         /** سرویس در حال کار است، چه در جست‌وجو و چه وصل. */
         @Volatile
@@ -281,16 +270,22 @@ class AzadVpnService : VpnService() {
             launch(context, intent)
         }
 
-        fun start(context: Context, config: String, socksPort: Int, label: String) {
+        /**
+         * رابط VPN را می‌سازد و به پروکسی محلی وصل می‌کند. هسته Xray باید
+         * از قبل روی socksPort بالا باشد.
+         */
+        fun establish(context: Context, socksPort: Int, label: String) {
             _state.value = State.Starting
-            pendingConfig = config
             val intent = Intent(context, AzadVpnService::class.java).apply {
-                action = ACTION_START
+                action = ACTION_ESTABLISH
                 putExtra(EXTRA_SOCKS_PORT, socksPort)
                 putExtra(EXTRA_LABEL, label)
             }
             launch(context, intent)
         }
+
+        /** آیا رابط VPN همین الان برقرار است. */
+        fun isEstablished(): Boolean = _state.value is State.Connected
 
         fun stop(context: Context) {
             val intent = Intent(context, AzadVpnService::class.java).setAction(ACTION_STOP)
