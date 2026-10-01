@@ -70,6 +70,33 @@ func StartXray(configJSON string) (err error) {
 	return nil
 }
 
+// CheckXray کانفیگ را کامل می‌خواند و می‌سازد، بی‌آنکه هسته‌ای بالا بیاورد.
+//
+// لینک‌های فهرست‌های عمومی گاهی خراب‌اند: کلید Reality خالی، نوع انتقالی
+// که این نسخه هسته نمی‌شناسد، و از این قبیل. در آزمون هم‌زمان همه سرورها
+// در یک کانفیگ‌اند و یک لینک خراب کل کانفیگ را از کار می‌اندازد. پس هر
+// سرور پیش از ورود به آزمون جداگانه با این تابع سنجیده می‌شود. چند
+// میلی‌ثانیه طول می‌کشد و شبکه نمی‌زند.
+func CheckXray(configJSON string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("کانفیگ Xray هسته را به وحشت انداخت: %v", r)
+		}
+	}()
+
+	config, err := serial.LoadJSONConfig(strings.NewReader(configJSON))
+	if err != nil {
+		return fmt.Errorf("کانفیگ Xray خوانده نشد: %w", err)
+	}
+	// ساختن نمونه بدون Start هم خطاهای سطح پروتکل را بیرون می‌کشد
+	instance, err := core.New(config)
+	if err != nil {
+		return fmt.Errorf("هسته Xray ساخته نشد: %w", err)
+	}
+	_ = instance.Close()
+	return nil
+}
+
 // StopXray هسته را می‌بندد. فراخوانی چندباره‌اش بی‌ضرر است.
 func StopXray() {
 	xrayMu.Lock()

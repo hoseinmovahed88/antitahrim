@@ -279,13 +279,29 @@ class VpnManager private constructor(context: Context) {
      */
     private suspend fun screen(candidates: List<ServerTester.Result>): List<Passed> {
         val quarantined = store.quarantine
+        var malformed = 0
         val picked = candidates
+            .asSequence()
             .filter { it.link.identity !in quarantined }
             // یک سرور با ده آی‌پی ورودی مختلف هنوز یک سرور است
             .distinctBy { it.link.identity }
+            // لینک خرابی که هسته نمی‌پذیرد، اگر وارد کانفیگ مشترک شود کل
+            // آزمون را از کار می‌اندازد. هر سرور جدا سنجیده می‌شود؛ زیر یک
+            // میلی‌ثانیه طول می‌کشد.
+            .filter { candidate ->
+                val ok = runCatching {
+                    Azadcore.checkXray(
+                        XrayConfig.build(candidate.link, AzadVpnService.DEFAULT_SOCKS_PORT, candidate.ip)
+                    )
+                }.isSuccess
+                if (!ok) malformed++
+                ok
+            }
             .take(SCREEN_SIZE)
+            .toList()
         val skipped = candidates.count { it.link.identity in quarantined }
         if (skipped > 0) Report.log(skipped.toString() + " نامزد قرنطینه‌شده کنار گذاشته شد")
+        if (malformed > 0) Report.log(malformed.toString() + " لینک خراب که هسته نپذیرفت کنار گذاشته شد")
         if (picked.isEmpty()) return emptyList()
 
         val slots = ArrayList<XrayConfig.ScreenSlot>()

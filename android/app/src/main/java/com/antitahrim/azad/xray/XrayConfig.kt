@@ -396,7 +396,16 @@ object XrayConfig {
     }
 
     private fun streamSettings(link: ConfigLink): JSONObject {
-        val network = link.params["type"] ?: link.params["net"] ?: "tcp"
+        // در لینک‌های vless و trojan نوع انتقال در type است. در vmess نوع
+        // انتقال در net است و type نوع سرآیند است، با مقادیری مثل none و
+        // http و auto. خواندن type برای vmess، صد و سی سرور از فهرست‌ها را
+        // با «unknown transport protocol: auto» از کار می‌انداخت، و چون در
+        // آزمون هم‌زمان همه در یک کانفیگ‌اند، هر کدام کل آزمون را می‌کشت.
+        val network = if (link.protocol == "vmess") {
+            link.params["net"]?.ifBlank { null } ?: "tcp"
+        } else {
+            link.params["type"]?.ifBlank { null } ?: "tcp"
+        }
         val security = effectiveSecurity(link)
 
         val stream = JSONObject()

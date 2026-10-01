@@ -255,6 +255,20 @@ class XrayConfigTest {
         assertEquals("out-2", rules[2].getString("outboundTag"))
     }
 
+    /**
+     * از یک گزارش واقعی: در vmess نوع انتقال در net است و type نوع سرآیند.
+     * خواندن type، صد و سی سرور را با «unknown transport protocol: auto»
+     * از کار انداخت و چون همه در یک کانفیگ آزمون بودند کل آزمون را کشت.
+     */
+    @Test
+    fun `vmess takes its transport from net, not type`() {
+        val json = """{"v":"2","ps":"x","add":"66.163.115.23","port":"443","id":"03fcc618-b93d-6796-6aed-8a38c975d581","aid":"0","net":"ws","type":"auto","host":"a.example","path":"/p","tls":"tls"}"""
+        val raw = "vmess://" + java.util.Base64.getEncoder().encodeToString(json.toByteArray())
+        val config = build(raw)
+        val stream = config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+        assertEquals("ws", stream.getString("network"))
+    }
+
     @Test
     fun `fragmenting only applies to tls servers`() {
         assertTrue(XrayConfig.canFragment(requireNotNull(ConfigLink.parse("trojan://pw@1.2.3.4:443#t"))))
