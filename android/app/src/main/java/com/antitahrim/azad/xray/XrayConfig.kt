@@ -45,6 +45,8 @@ object XrayConfig {
         "fe80::/10"
     )
 
+    private const val FRAGMENT_TAG = "fragment"
+
     /** دامنه‌های سطح بالای ایران: ir و معادل فارسی‌اش به شکل punycode. */
     private val IRAN_TLDS = listOf("ir", "xn--mgba3a4f16a")
 
@@ -56,12 +58,14 @@ object XrayConfig {
      *   می‌ماند، یعنی در SNI و در هدر Host، پس چیزی برای DPI عوض نمی‌شود.
      * @param iranDirect اگر داده شود، مقصدهای ایرانی از تونل رد نمی‌شوند و
      *   مستقیم از شبکه خود گوشی می‌روند.
+     * @param fragment اولین بسته دست‌دادن TLS تا سرور تکه‌تکه فرستاده شود.
      */
     fun build(
         link: ConfigLink,
         socksPort: Int,
         serverIp: String? = null,
-        iranDirect: IranList.Lists? = null
+        iranDirect: IranList.Lists? = null,
+        fragment: Boolean = false
     ): String {
         val root = JSONObject()
 
@@ -88,13 +92,13 @@ object XrayConfig {
             )
         )
 
-        root.put(
-            "outbounds",
-            JSONArray()
-                .put(outbound(link, serverIp))
-                .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
-                .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
-        )
+        val useFragment = fragment && usesTls(link)
+        val outbounds = JSONArray()
+            .put(outbound(link, serverIp, useFragment))
+            .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+            .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+        if (useFragment) outbounds.put(fragmentOutbound())
+        root.put("outbounds", outbounds)
 
         root.put(
             "routing",
@@ -153,13 +157,54 @@ object XrayConfig {
         return rules
     }
 
-    private fun outbound(link: ConfigLink, serverIp: String?): JSONObject {
-        val outbound = JSONObject()
+    private fun outbound(link: ConfigLink, serverIp: String?, viaFragment: Boolean): JSONObject {
+        val stream = streamSettings(link)
+        if (viaFragment) {
+            // اتصال به سرور از دل خروجی fragment رد می‌شود، که دست‌دادنش را تکه‌تکه می‌کند
+            stream.put("sockopt", JSONObject().put("dialerProxy", FRAGMENT_TAG))
+        }
+        return JSONObject()
             .put("tag", "proxy")
             .put("protocol", link.protocol)
             .put("settings", settings(link, serverIp ?: link.host))
-            .put("streamSettings", streamSettings(link))
-        return outbound
+            .put("streamSettings", stream)
+    }
+
+    /**
+     * تکه‌تکه کردن ClientHello تا خود سرور.
+     *
+     * چرا لازم شد: بیشتر سرورهای فهرست‌های عمومی پشت Cloudflare هستند. آی‌پی
+     * Cloudflare از ایران باز است، پس غربال TCP رد می‌شود و تونل «بالا می‌آید».
+     * ولی سامانه بازرسی نام دامنه را در اولین بسته TLS می‌خواند و نام
+     * سرورهای شناخته‌شده را می‌بندد. این محتمل‌ترین توضیح گزارشی است که
+     * تونل برای همه نامزدهای پشت Cloudflare بالا آمد و هیچ‌کدام ترافیک رد
+     * نکرد؛ آی‌پی باز بود و چیزی بعد از اتصال TCP جلوی کار را می‌گرفت.
+     *
+     * همان کاری که لایه HTTP خود برنامه برای گرفتن فهرست‌ها می‌کند و از
+     * همین شبکه جواب داده، اینجا هم انجام می‌شود: ClientHello به رکوردهای
+     * کوچک شکسته می‌شود تا نام دامنه هیچ‌وقت یک‌جا در یک رکورد نباشد.
+     *
+     * maxSplit تعداد تکه‌ها را محدود می‌کند. نام دامنه در چند صد بایت اول
+     * است؛ شکستن بقیه دست‌دادن فقط هر اتصال تازه را کند می‌کرد.
+     */
+    private fun fragmentOutbound(): JSONObject = JSONObject()
+        .put("tag", FRAGMENT_TAG)
+        .put("protocol", "freedom")
+        .put(
+            "settings",
+            JSONObject().put(
+                "fragment",
+                JSONObject()
+                    .put("packets", "tlshello")
+                    .put("length", "10-30")
+                    .put("interval", "4-12")
+                    .put("maxSplit", "10-20")
+            )
+        )
+
+    private fun usesTls(link: ConfigLink): Boolean {
+        val security = link.params["security"].orEmpty()
+        return security == "tls" || security == "reality" || security == "true"
     }
 
     private fun settings(link: ConfigLink, address: String): JSONObject = when (link.protocol) {

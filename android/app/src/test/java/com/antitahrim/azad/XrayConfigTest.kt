@@ -121,6 +121,52 @@ class XrayConfigTest {
         assertEquals(1, config.getJSONObject("routing").getJSONArray("rules").length())
     }
 
+    /**
+     * از یک گزارش واقعی: تونل برای همه نامزدهای پشت Cloudflare بالا آمد و
+     * هیچ‌کدام ترافیک رد نکرد. نام دامنه در ClientHello دیده و بسته می‌شد.
+     */
+    @Test
+    fun `tls servers are reached through the fragmenting outbound`() {
+        val link = requireNotNull(
+            ConfigLink.parse("trojan://pw@104.18.32.87:443?security=tls&sni=a.example&type=ws&host=a.example#s")
+        )
+        val config = JSONObject(XrayConfig.build(link, 10808, null, null, fragment = true))
+        val outbounds = config.getJSONArray("outbounds")
+        val tags = (0 until outbounds.length()).map { outbounds.getJSONObject(it).getString("tag") }
+
+        // سرور همچنان اولین خروجی است، چون Xray اولی را پیش‌فرض می‌گیرد
+        assertEquals("proxy", tags.first())
+        assertTrue(tags.contains("fragment"))
+
+        val proxy = outbounds.getJSONObject(0)
+        assertEquals(
+            "fragment",
+            proxy.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy")
+        )
+
+        val fragment = outbounds.getJSONObject(tags.indexOf("fragment"))
+            .getJSONObject("settings").getJSONObject("fragment")
+        assertEquals("tlshello", fragment.getString("packets"))
+        assertTrue(fragment.has("maxSplit"))
+    }
+
+    @Test
+    fun `plain servers are not routed through the fragmenter`() {
+        val link = requireNotNull(ConfigLink.parse("vless://id@example.com:80?type=ws#s"))
+        val config = JSONObject(XrayConfig.build(link, 10808, null, null, fragment = true))
+        assertFalse(config.toString().contains("dialerProxy"))
+    }
+
+    @Test
+    fun `the same server behind different addresses is one identity`() {
+        val a = requireNotNull(ConfigLink.parse("trojan://pw@104.18.32.87:443?security=tls&sni=a.example&path=/t#x"))
+        val b = requireNotNull(ConfigLink.parse("trojan://pw@172.64.152.23:443?security=tls&sni=a.example&path=/t#y"))
+        val c = requireNotNull(ConfigLink.parse("trojan://pw@172.64.152.23:443?security=tls&sni=b.example&path=/t#z"))
+
+        assertEquals(a.identity, b.identity)
+        assertFalse(a.identity == c.identity)
+    }
+
     @Test
     fun `the socks inbound listens on the port the bridge will use`() {
         val config = build("vless://id@example.com:443#s")

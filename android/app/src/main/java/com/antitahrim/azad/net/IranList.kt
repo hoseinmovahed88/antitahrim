@@ -31,7 +31,15 @@ object IranList {
     private const val CIDR_FILE = "iran-cidr.txt"
     private const val DOMAIN_FILE = "iran-domains.txt"
     private const val PREFS = "azad_iran_list"
-    private const val KEY_UPDATED = "updated_at"
+
+    /**
+     * هر فهرست زمان به‌روزرسانی خودش را دارد. یک زمان مشترک یعنی اگر یکی
+     * گرفته شد و دیگری نه، دومی تا یک هفته دوباره امتحان نمی‌شد. همین اتفاق
+     * افتاد: رنج‌ها آمدند، نام‌ها در یک لحظه بد شبکه نیامدند، و برنامه یک
+     * هفته با فهرست کوچک همراه خودش می‌ماند.
+     */
+    private const val KEY_UPDATED_CIDR = "updated_cidr_at"
+    private const val KEY_UPDATED_DOMAINS = "updated_domains_at"
 
     /** هر هفته یک بار. رنج‌های آی‌پی کشور سریع‌تر از این عوض نمی‌شوند. */
     private const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
@@ -89,50 +97,68 @@ object IranList {
         }
     }
 
-    fun lastUpdated(context: Context): Long =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_UPDATED, 0L)
+    fun lastUpdated(context: Context): Long = minOf(
+        prefs(context).getLong(KEY_UPDATED_CIDR, 0L),
+        prefs(context).getLong(KEY_UPDATED_DOMAINS, 0L)
+    )
 
     fun isStale(context: Context): Boolean =
-        System.currentTimeMillis() - lastUpdated(context) > MAX_AGE_MS
+        isStale(context, KEY_UPDATED_CIDR) || isStale(context, KEY_UPDATED_DOMAINS)
+
+    private fun isStale(context: Context, key: String): Boolean =
+        System.currentTimeMillis() - prefs(context).getLong(key, 0L) > MAX_AGE_MS
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /**
-     * اگر فهرست کهنه شده بود تازه‌اش می‌کند. شکست دریافت بی‌اهمیت است و
-     * فقط ثبت می‌شود؛ فهرست قبلی یا فهرست همراه برنامه سر جایش می‌ماند.
+     * هر فهرستی که کهنه شده باشد تازه می‌شود. شکست دریافت بی‌اهمیت است و
+     * فقط ثبت می‌شود؛ فهرست قبلی یا فهرست همراه برنامه سر جایش می‌ماند و
+     * دفعه بعد دوباره تلاش می‌شود.
      *
      * این تابع شبکه می‌زند، پس باید روی نخ پس‌زمینه صدا زده شود.
      */
     fun refreshIfStale(context: Context, fragmentTls: Boolean, strictIranDns: Boolean) {
-        if (!isStale(context)) return
+        val cidrDue = isStale(context, KEY_UPDATED_CIDR)
+        val domainsDue = isStale(context, KEY_UPDATED_DOMAINS)
+        if (!cidrDue && !domainsDue) return
         Report.log("به‌روزرسانی فهرست مقصدهای ایرانی")
 
-        val cidrs = fetch(CIDR_SOURCE, fragmentTls, strictIranDns)
-            ?.let { parseCidrs(it) }
-            ?.takeIf { it.size >= MIN_CIDRS }
-        val domains = fetch(DOMAIN_SOURCE, fragmentTls, strictIranDns)
-            ?.let { parseDomains(it) }
-            ?.takeIf { it.size >= MIN_DOMAINS }
+        var changed = false
 
-        if (cidrs != null) {
-            writeLines(file(context, CIDR_FILE), cidrs)
-            Report.log("رنج‌های ایران به‌روز شد: " + cidrs.size)
-        }
-        if (domains != null) {
-            writeLines(file(context, DOMAIN_FILE), domains)
-            Report.log("نام‌های ایرانی به‌روز شد: " + domains.size)
+        if (cidrDue) {
+            val cidrs = fetch(CIDR_SOURCE, fragmentTls, strictIranDns)
+                ?.let { parseCidrs(it) }
+                ?.takeIf { it.size >= MIN_CIDRS }
+            if (cidrs != null) {
+                writeLines(file(context, CIDR_FILE), cidrs)
+                markUpdated(context, KEY_UPDATED_CIDR)
+                Report.log("رنج‌های ایران به‌روز شد: " + cidrs.size)
+                changed = true
+            }
         }
 
-        if (cidrs == null && domains == null) {
-            Report.log("به‌روزرسانی فهرست نشد، فهرست قبلی استفاده می‌شود")
-            return
+        if (domainsDue) {
+            val domains = fetch(DOMAIN_SOURCE, fragmentTls, strictIranDns)
+                ?.let { parseDomains(it) }
+                ?.takeIf { it.size >= MIN_DOMAINS }
+            if (domains != null) {
+                writeLines(file(context, DOMAIN_FILE), domains)
+                markUpdated(context, KEY_UPDATED_DOMAINS)
+                Report.log("نام‌های ایرانی به‌روز شد: " + domains.size)
+                changed = true
+            }
         }
 
-        // زمان فقط وقتی ثبت می‌شود که چیزی واقعاً گرفته شده باشد، وگرنه یک
-        // شبکه قطع می‌توانست یک هفته جلوی تلاش بعدی را بگیرد.
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putLong(KEY_UPDATED, System.currentTimeMillis())
-            .apply()
-        cache = null
+        if (changed) {
+            cache = null
+        } else {
+            Report.log("به‌روزرسانی فهرست نشد، فهرست قبلی استفاده می‌شود و دفعه بعد دوباره تلاش می‌شود")
+        }
+    }
+
+    private fun markUpdated(context: Context, key: String) {
+        prefs(context).edit().putLong(key, System.currentTimeMillis()).apply()
     }
 
     private fun fetch(source: Source, fragmentTls: Boolean, strictIranDns: Boolean): String? =

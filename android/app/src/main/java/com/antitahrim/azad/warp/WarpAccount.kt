@@ -96,6 +96,39 @@ class Store(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATION, true)
         set(value) = prefs.edit().putBoolean(KEY_NOTIFICATION, value).apply()
 
+    /**
+     * سرورهایی که همین الان در حال امتحان‌اند، تازه‌ترین اول.
+     *
+     * با commit نوشته می‌شود نه apply. هدفش دقیقاً همان لحظه‌ای است که
+     * فرایند ناگهان می‌میرد، و apply نوشتن را برای بعد صف می‌کند.
+     */
+    var serversInFlight: List<String>
+        get() = prefs.getString(KEY_IN_FLIGHT, null)
+            ?.split('\n')
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_IN_FLIGHT, value.joinToString("\n")).commit()
+        }
+
+    /** سرورهایی که هسته را از کار انداخته‌اند و دیگر امتحان نمی‌شوند. */
+    val quarantine: Set<String>
+        get() = prefs.getString(KEY_QUARANTINE, null)
+            ?.split('\n')
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+
+    fun addToQuarantine(identities: Collection<String>) {
+        val updated = (prefs.getString(KEY_QUARANTINE, null)
+            ?.split('\n')
+            ?.filter { it.isNotBlank() }
+            .orEmpty() + identities)
+            .distinct()
+            .takeLast(MAX_QUARANTINE)
+        prefs.edit().putString(KEY_QUARANTINE, updated.joinToString("\n")).commit()
+    }
+
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
@@ -109,5 +142,10 @@ class Store(context: Context) {
         const val KEY_STRICT_DNS = "strict_iran_dns"
         const val KEY_TRANSPORT = "transport"
         const val KEY_NOTIFICATION = "persistent_notification"
+        const val KEY_IN_FLIGHT = "servers_in_flight"
+        const val KEY_QUARANTINE = "server_quarantine"
+
+        /** فهرست قرنطینه بی‌انتها رشد نکند؛ سرورهای عمومی به‌هرحال زود عوض می‌شوند. */
+        const val MAX_QUARANTINE = 300
     }
 }

@@ -87,6 +87,11 @@ object Report {
         prefs?.edit()?.remove(KEY_CRASH)?.apply()
     }
 
+    /** کرشی که استثنای جاوا ندارد، مثل وحشت هسته Go، فقط با متن ردش. */
+    fun recordCrashText(text: String) {
+        prefs?.edit()?.putString(KEY_CRASH, text.take(4000))?.commit()
+    }
+
     fun recordCrash(error: Throwable) {
         val writer = StringWriter()
         error.printStackTrace(PrintWriter(writer))

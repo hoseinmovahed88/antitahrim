@@ -2,6 +2,7 @@ package com.antitahrim.azad
 
 import android.app.Application
 import android.os.Build
+import com.antitahrim.azad.core.CoreCrash
 import com.antitahrim.azad.core.Report
 
 /**
@@ -27,5 +28,8 @@ class AzadApp : Application() {
                 "، " + Build.MANUFACTURER + " " + Build.MODEL +
                 "، " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "نامشخص")
         )
+
+        // اگر دفعه قبل هسته Go وحشت کرده و فرایند را کشته، ردش اینجا پیدا می‌شود
+        CoreCrash.collect(this)
     }
 }

@@ -45,4 +45,5 @@
     <string name="tile_label">Azad</string>
     <string name="opt_notification">Persistent notification</string>
     <string name="opt_notification_desc">Shows Azad in the status bar with a connect/disconnect button. With it off there is no notification, but Android is more likely to close the tunnel while searching or when memory is low. The Quick Settings tile works either way.</string>
+    <string name="crashed_on_server">Last time one of the listed servers crashed the core and the app closed. That server has been set aside; tap connect again.</string>
 </resources>

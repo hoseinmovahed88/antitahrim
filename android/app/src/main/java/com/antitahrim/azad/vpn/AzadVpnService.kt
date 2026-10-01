@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import azadcore.Azadcore
 import com.antitahrim.azad.R
+import com.antitahrim.azad.core.CoreCrash
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.warp.Store
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -157,6 +158,7 @@ class AzadVpnService : VpnService() {
         _state.value = State.Starting
 
         Report.log("ساخت تونل، طول کانفیگ " + config.length)
+        CoreCrash.install(this)
         val descriptor = try {
             Azadcore.startXray(config)
             Report.log("هسته Xray بالا آمد، نسخه " + Azadcore.xrayVersion())

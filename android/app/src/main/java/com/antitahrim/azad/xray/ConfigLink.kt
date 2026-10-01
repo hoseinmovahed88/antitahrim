@@ -22,6 +22,22 @@ data class ConfigLink(
     /** شناسه‌ای پایدار برای همین سرور، تا تکراری‌ها حذف شوند. */
     val key: String get() = "$protocol://$host:$port/$id"
 
+    /**
+     * هویت خود سرور، جدا از آی‌پی‌ای که از آن رسیده‌ایم.
+     *
+     * فهرست‌ها یک سرور پشت Cloudflare را با ده‌ها آی‌پی تمیز مختلف تکرار
+     * می‌کنند. شناسه و نام دامنه یکی است، فقط آی‌پی ورود فرق دارد. اگر آن
+     * نام دامنه بسته باشد یا خود سرور مرده باشد، همه این نسخه‌ها با هم شکست
+     * می‌خورند. پس شش تلاش روی شش نسخه از یک سرور یعنی در واقع یک تلاش.
+     */
+    val identity: String
+        get() {
+            val name = listOf(params["sni"], params["host"], params["hostHeader"])
+                .firstOrNull { !it.isNullOrBlank() }
+                ?: host
+            return protocol + "|" + id + "|" + name.lowercase() + "|" + params["path"].orEmpty()
+        }
+
     val label: String
         get() = remark.ifBlank { "$protocol $host:$port" }
 

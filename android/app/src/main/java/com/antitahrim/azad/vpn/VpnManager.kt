@@ -98,6 +98,37 @@ class VpnManager private constructor(context: Context) {
     /** چند سرور Xray با تونل واقعی امتحان شود، نه فقط با غربال TCP. */
     private val fullAttempts = 6
 
+    /** سرورهای اخیراً امتحان‌شده در همین دور، تازه‌ترین اول. */
+    private val recentlyTried = ArrayDeque<String>()
+
+    init {
+        quarantineAfterCrash()
+    }
+
+    /**
+     * اگر فرایند وسط امتحان یک سرور مرده باشد، آن سرور مقصر است.
+     *
+     * بعضی کانفیگ‌های فهرست‌های عمومی هسته را به وحشت می‌اندازند، و وحشت
+     * در goroutine هسته کل برنامه را می‌کشد؛ هیچ استثنایی نیست که بشود
+     * گرفت. پس همان سرورها کنار گذاشته می‌شوند تا دفعه بعد دوباره همین
+     * اتفاق نیفتد.
+     *
+     * سرور قبلی هم همراهش کنار می‌رود، چون وحشت گاهی یکی دو ثانیه بعد از
+     * رها کردن یک سرور رخ می‌دهد، وقتی نوبت سرور بعدی شده. یک سرور سالم
+     * که اشتباهی کنار برود از میان صدها سرور هزینه‌ای ندارد؛ یک سرور
+     * خراب که دوباره امتحان شود یعنی یک کرش دیگر.
+     */
+    private fun quarantineAfterCrash() {
+        val suspects = store.serversInFlight
+        if (suspects.isEmpty()) return
+        store.addToQuarantine(suspects)
+        store.serversInFlight = emptyList()
+        Report.log("برنامه دفعه قبل وسط امتحان سرور بسته شد؛ " + suspects.size + " سرور مظنون کنار گذاشته شد")
+        _state.value = State.Failed(
+            appContext.getString(R.string.crashed_on_server)
+        )
+    }
+
     private fun onBackendState(newState: Tunnel.State) {
         if (newState == Tunnel.State.DOWN && _state.value is State.Connected) {
             Report.log("تونل از بیرون قطع شد")
@@ -188,6 +219,8 @@ class VpnManager private constructor(context: Context) {
     }
 
     private fun failXray(message: String) {
+        recentlyTried.clear()
+        store.serversInFlight = emptyList()
         AzadVpnService.stop(appContext)
         _state.value = State.Failed(message)
     }
@@ -215,8 +248,15 @@ class VpnManager private constructor(context: Context) {
 
     /** نامزدها را به ترتیب تا آخر امتحان می‌کند. اولین سالم نگه داشته می‌شود. */
     private suspend fun tryCandidates(candidates: List<ServerTester.Result>): Boolean {
-        val attempts = candidates.take(fullAttempts)
-        Report.log("امتحان کامل روی " + attempts.size + " نامزد اول")
+        val quarantined = store.quarantine
+        val attempts = candidates
+            .filter { it.link.identity !in quarantined }
+            // یک سرور با ده آی‌پی ورودی مختلف هنوز یک سرور است
+            .distinctBy { it.link.identity }
+            .take(fullAttempts)
+        val skipped = candidates.count { it.link.identity in quarantined }
+        if (skipped > 0) Report.log(skipped.toString() + " نامزد قرنطینه‌شده کنار گذاشته شد")
+        Report.log("امتحان کامل روی " + attempts.size + " سرور متفاوت")
 
         attempts.forEachIndexed { index, candidate ->
             _state.value = State.Scanning(index + 1, attempts.size, candidate.link.label)
@@ -226,6 +266,9 @@ class VpnManager private constructor(context: Context) {
             )
 
             if (tryXrayServer(candidate)) {
+                // وصل شدیم؛ دیگر هیچ سروری «وسط امتحان» نیست
+                recentlyTried.clear()
+                store.serversInFlight = emptyList()
                 current = candidate
                 store.workingEndpoint = candidate.link.key
                 _state.value = State.Connected(candidate.link.label)
@@ -250,11 +293,19 @@ class VpnManager private constructor(context: Context) {
      * عبور کند. اگر هر کدام نشد، false و دلیلش در گزارش.
      */
     private suspend fun tryXrayServer(candidate: ServerTester.Result): Boolean {
+        // پیش از بالا آوردن هسته ثبت می‌شود، چون اگر این سرور هسته را
+        // بکشد فرصت دیگری برای ثبت نیست
+        recentlyTried.remove(candidate.link.identity)
+        recentlyTried.addFirst(candidate.link.identity)
+        while (recentlyTried.size > 2) recentlyTried.removeLast()
+        store.serversInFlight = recentlyTried.toList()
+
         val config = XrayConfig.build(
             candidate.link,
             AzadVpnService.DEFAULT_SOCKS_PORT,
             candidate.ip,
-            if (store.domesticDirect) IranList.load(appContext) else null
+            if (store.domesticDirect) IranList.load(appContext) else null,
+            fragment = store.fragmentTls
         )
         AzadVpnService.start(
             appContext,
@@ -531,6 +582,8 @@ class VpnManager private constructor(context: Context) {
         watchdogJob = null
         connectJob = null
         current = null
+        recentlyTried.clear()
+        store.serversInFlight = emptyList()
 
         stopTunnel()
         AzadVpnService.stop(appContext)
