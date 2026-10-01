@@ -114,6 +114,70 @@ object XrayConfig {
         return root.toString()
     }
 
+    /** یک خانه در آزمون هم‌زمان: کدام سرور، با تکه‌تکه کردن یا بی آن، روی کدام پورت. */
+    data class ScreenSlot(
+        val link: ConfigLink,
+        val serverIp: String?,
+        val fragment: Boolean,
+        val port: Int
+    )
+
+    /** آیا تکه‌تکه کردن برای این سرور معنا دارد؛ فقط وقتی TLS در کار است. */
+    fun canFragment(link: ConfigLink): Boolean = usesTls(link)
+
+    /**
+     * کانفیگ آزمون هم‌زمان: یک هسته، چند سرور.
+     *
+     * هر خانه یک ورودی SOCKS روی پورت خودش دارد که فقط به خروجی سرور خودش
+     * می‌رود. پس سنجه می‌تواند همه را با هم امتحان کند. امتحان تک‌تک هر
+     * سرور مرده سیزده ثانیه طول می‌کشید و در هر دور فقط شش سرور به نوبت
+     * می‌رسید؛ هم‌زمان، چند ده سرور در همان چند ثانیه سنجیده می‌شوند.
+     *
+     * DNS و قواعد ایران اینجا لازم نیستند؛ این فقط آزمون است. سرور برنده
+     * بعداً با کانفیگ کامل یک بار دیگر و کامل‌تر سنجیده می‌شود.
+     */
+    fun buildScreening(slots: List<ScreenSlot>): String {
+        val inbounds = JSONArray()
+        // اولین خروجی پیش‌فرض Xray است؛ هر چیزی که به قاعده‌ای نخورد دور ریخته شود
+        val outbounds = JSONArray().put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+        val rules = JSONArray()
+
+        slots.forEachIndexed { i, slot ->
+            val inTag = "in-$i"
+            val outTag = "out-$i"
+            inbounds.put(
+                JSONObject()
+                    .put("tag", inTag)
+                    .put("listen", "127.0.0.1")
+                    .put("port", slot.port)
+                    .put("protocol", "socks")
+                    .put("settings", JSONObject().put("auth", "noauth").put("udp", false))
+            )
+            outbounds.put(
+                outbound(slot.link, slot.serverIp, slot.fragment && usesTls(slot.link), outTag)
+            )
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put(inTag))
+                    .put("outboundTag", outTag)
+            )
+        }
+        if (slots.any { it.fragment && usesTls(it.link) }) outbounds.put(fragmentOutbound())
+
+        return JSONObject()
+            .put("log", JSONObject().put("loglevel", "warning"))
+            .put("inbounds", inbounds)
+            .put("outbounds", outbounds)
+            .put(
+                "routing",
+                JSONObject()
+                    .put("domainStrategy", "AsIs")
+                    .put("rules", rules)
+            )
+            .toString()
+    }
+
     /**
      * قواعد مسیریابی. Xray از بالا به پایین می‌خواند و اولین قاعده‌ای که
      * بخواند برنده است، پس ترتیبشان مهم است.
@@ -204,14 +268,19 @@ object XrayConfig {
         )
         .put("queryStrategy", "UseIPv4")
 
-    private fun outbound(link: ConfigLink, serverIp: String?, viaFragment: Boolean): JSONObject {
+    private fun outbound(
+        link: ConfigLink,
+        serverIp: String?,
+        viaFragment: Boolean,
+        tag: String = "proxy"
+    ): JSONObject {
         val stream = streamSettings(link)
         if (viaFragment) {
             // اتصال به سرور از دل خروجی fragment رد می‌شود، که دست‌دادنش را تکه‌تکه می‌کند
             stream.put("sockopt", JSONObject().put("dialerProxy", FRAGMENT_TAG))
         }
         return JSONObject()
-            .put("tag", "proxy")
+            .put("tag", tag)
             .put("protocol", link.protocol)
             .put("settings", settings(link, serverIp ?: link.host))
             .put("streamSettings", stream)

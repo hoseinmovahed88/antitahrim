@@ -222,6 +222,46 @@ class XrayConfigTest {
     }
 
     @Test
+    fun `screening gives every slot its own port and its own server`() {
+        val a = requireNotNull(ConfigLink.parse("trojan://pw@104.18.32.87:443?sni=a.example#a"))
+        val b = requireNotNull(ConfigLink.parse("vless://id@5.6.7.8:80?type=ws#b"))
+        val slots = listOf(
+            XrayConfig.ScreenSlot(a, "104.18.32.87", fragment = true, port = 20810),
+            XrayConfig.ScreenSlot(a, "104.18.32.87", fragment = false, port = 20811),
+            XrayConfig.ScreenSlot(b, null, fragment = false, port = 20812)
+        )
+        val config = JSONObject(XrayConfig.buildScreening(slots))
+
+        val inbounds = config.getJSONArray("inbounds")
+        assertEquals(3, inbounds.length())
+        assertEquals(20811, inbounds.getJSONObject(1).getInt("port"))
+
+        val outbounds = config.getJSONArray("outbounds")
+        val byTag = (0 until outbounds.length()).associate {
+            outbounds.getJSONObject(it).getString("tag") to outbounds.getJSONObject(it)
+        }
+        // پیش‌فرض باید دور ریختن باشد، نه یکی از سرورها
+        assertEquals("block", outbounds.getJSONObject(0).getString("tag"))
+        assertTrue(byTag.containsKey("fragment"))
+
+        val fragmented = byTag.getValue("out-0").getJSONObject("streamSettings")
+        val plain = byTag.getValue("out-1").getJSONObject("streamSettings")
+        assertEquals("fragment", fragmented.getJSONObject("sockopt").getString("dialerProxy"))
+        assertFalse(plain.has("sockopt"))
+
+        val rules = rulesOf(config)
+        assertEquals(3, rules.size)
+        assertEquals("in-2", rules[2].getJSONArray("inboundTag").getString(0))
+        assertEquals("out-2", rules[2].getString("outboundTag"))
+    }
+
+    @Test
+    fun `fragmenting only applies to tls servers`() {
+        assertTrue(XrayConfig.canFragment(requireNotNull(ConfigLink.parse("trojan://pw@1.2.3.4:443#t"))))
+        assertFalse(XrayConfig.canFragment(requireNotNull(ConfigLink.parse("vless://id@1.2.3.4:80?type=ws#v"))))
+    }
+
+    @Test
     fun `the socks inbound listens on the port the bridge will use`() {
         val config = build("vless://id@example.com:443#s")
         val inbound = config.getJSONArray("inbounds").getJSONObject(0)

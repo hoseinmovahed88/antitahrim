@@ -44,7 +44,7 @@ object ConfigSources {
      * می‌رویم. اگر هیچ‌کدام جواب ندهند فهرست خالی برمی‌گردد.
      */
     fun fetchAll(fragmentTls: Boolean, strictIranDns: Boolean): List<ConfigLink> {
-        val found = LinkedHashMap<String, ConfigLink>()
+        val perSource = ArrayList<List<ConfigLink>>()
 
         for (source in SOURCES) {
             // نکته کاتلین: continue داخل لامبدای inline هنوز آزمایشی است و
@@ -75,12 +75,36 @@ object ConfigSources {
                 continue
             }
 
-            val added = parseInto(found, body.body)
+            val local = LinkedHashMap<String, ConfigLink>()
+            val added = parseInto(local, body.body)
+            perSource.add(local.values.toList())
             Report.log("منبع " + source.path.takeLast(28) + ": " + added + " سرور")
         }
 
-        Report.log("مجموع سرورهای یکتا: " + found.size)
-        return found.values.toList()
+        val merged = interleave(perSource)
+        Report.log("مجموع سرورهای یکتا: " + merged.size)
+        return merged
+    }
+
+    /**
+     * فهرست‌ها یکی‌درمیان کنار هم گذاشته می‌شوند، نه پشت سر هم.
+     *
+     * غربال وقتی به اندازه کافی سرور زنده پیدا کند می‌ایستد. با فهرست‌های پشت
+     * سر هم، همیشه فقط سرورهای منبع اول به غربال می‌رسیدند؛ گزارش‌ها همین را
+     * نشان دادند، همه نامزدها از یک منبع و تقریباً همه پشت یک CDN. اگر آن
+     * دسته از این شبکه کار نکند، یعنی هیچ‌چیز کار نمی‌کند، در حالی که منابع
+     * دیگر هرگز امتحان نشده‌اند.
+     */
+    internal fun interleave(lists: List<List<ConfigLink>>): List<ConfigLink> {
+        val out = LinkedHashMap<String, ConfigLink>()
+        val longest = lists.maxOfOrNull { it.size } ?: 0
+        for (i in 0 until longest) {
+            for (list in lists) {
+                val link = list.getOrNull(i) ?: continue
+                out.putIfAbsent(link.key, link)
+            }
+        }
+        return out.values.toList()
     }
 
     /**

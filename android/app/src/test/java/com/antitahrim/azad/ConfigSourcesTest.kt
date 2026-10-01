@@ -32,4 +32,19 @@ class SourcesTest {
         assertTrue(into.values.any { it.protocol == "vless" })
         assertTrue(into.values.any { it.protocol == "trojan" })
     }
+
+    /**
+     * غربال وقتی به اندازه کافی سرور زنده پیدا کند می‌ایستد، پس اگر منابع
+     * پشت سر هم بیایند فقط منبع اول به غربال می‌رسد. گزارش واقعی همین را
+     * نشان داد: همه نامزدها از یک منبع.
+     */
+    @Test
+    fun `sources are interleaved so the sift sees all of them`() {
+        fun links(prefix: String, n: Int) = (1..n).map {
+            requireNotNull(ConfigLink.parse("vless://id-$prefix$it@$prefix$it.example:443#$prefix"))
+        }
+        val merged = ConfigSources.interleave(listOf(links("a", 3), links("b", 1), links("c", 2)))
+        val order = merged.map { it.remark }
+        assertEquals(listOf("a", "b", "c", "a", "c", "a"), order)
+    }
 }

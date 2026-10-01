@@ -43,7 +43,19 @@ object ProxyProbe {
 
     fun trafficFlows(socksPort: Int): Boolean = httpWorks(socksPort) && dnsWorks(socksPort)
 
-    private fun httpWorks(socksPort: Int): Boolean = runCatching {
+    /**
+     * فقط سنجش HTTP، برای آزمون هم‌زمان چند ده سرور.
+     *
+     * @param quiet در آزمون هم‌زمان بیشتر سرورها شکست می‌خورند و ثبت تک‌تک
+     *   شکست‌ها گزارش را پر می‌کرد و خطوط مهم‌تر را بیرون می‌انداخت.
+     * @return زمان رسیدن پاسخ به میلی‌ثانیه، یا null اگر کار نکرد
+     */
+    fun httpLatency(socksPort: Int, quiet: Boolean): Long? {
+        val started = System.nanoTime()
+        return if (httpWorks(socksPort, quiet)) (System.nanoTime() - started) / 1_000_000 else null
+    }
+
+    private fun httpWorks(socksPort: Int, quiet: Boolean = false): Boolean = runCatching {
         Socket().use { socket ->
             val (input, out) = open(socket, socksPort) ?: return@runCatching false
             if (!connect(input, out, domain = TEST_HOST, port = 80)) return@runCatching false
@@ -58,11 +70,13 @@ object ProxyProbe {
             val status = read(input, 12) ?: return@runCatching false
             val line = String(status, Charsets.US_ASCII)
             val ok = line.startsWith("HTTP/1.") && line.substring(9, 12) == "204"
-            if (!ok) Report.log("پاسخ نادرست از مسیر سرور: " + line.trim() + " — سرور واقعی پشتش نیست")
+            if (!ok && !quiet) Report.log("پاسخ نادرست از مسیر سرور: " + line.trim() + " — سرور واقعی پشتش نیست")
             ok
         }
     }.getOrElse { error ->
-        Report.log("سنجش پروکسی ناموفق — " + error.javaClass.simpleName + ": " + (error.message ?: "بدون پیام"))
+        if (!quiet) {
+            Report.log("سنجش پروکسی ناموفق — " + error.javaClass.simpleName + ": " + (error.message ?: "بدون پیام"))
+        }
         false
     }
 

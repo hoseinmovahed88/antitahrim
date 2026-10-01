@@ -26,6 +26,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -199,11 +201,19 @@ class VpnManager private constructor(context: Context) {
 
             // غربال TCP فقط می‌گوید پورت باز است. خیلی از این سرورها
             // پورتشان باز است و دست‌دادن رمزنگاری‌شان شکست می‌خورد، یا کلید
-            // و شناسه‌شان منقضی شده. پس سریع‌ترین سرور لزوماً کار نمی‌کند و
-            // تکیه بر یک نامزد یعنی شکست کل اتصال با اولین سرور خراب.
-            // به جایش چند نامزد اول یکی‌یکی تا آخر امتحان می‌شوند و فقط
-            // آنی می‌ماند که ترافیک واقعی از آن عبور کند.
-            if (tryCandidates(ranked)) {
+            // و شناسه‌شان منقضی شده. پس اول چند ده سرور هم‌زمان با درخواست
+            // واقعی سنجیده می‌شوند، و فقط آنهایی که جواب دادند به امتحان
+            // کامل می‌رسند.
+            val passed = screen(ranked)
+            if (passed.isEmpty()) {
+                failXray(
+                    "هیچ‌کدام از سرورهای امتحان‌شده از این شبکه ترافیک رد نکردند. " +
+                        "چند دقیقه بعد دوباره بزنید؛ فهرست‌ها مرتب عوض می‌شوند."
+                )
+                return
+            }
+
+            if (tryCandidates(passed)) {
                 startWatchdog()
                 return
             }
@@ -211,8 +221,7 @@ class VpnManager private constructor(context: Context) {
             // اگر ساخت رابط VPN خودش شکست خورده، پیام دقیق‌ترش از قبل ثبت شده
             if (_state.value !is State.Failed) {
                 failXray(
-                    "از " + minOf(ranked.size, fullAttempts) + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
-                        "دوباره بزنید تا سرورهای تازه امتحان شوند."
+                    "سرورهایی که جواب دادند در امتحان کامل، همراه با DNS، شکست خوردند. دوباره بزنید."
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -246,31 +255,111 @@ class VpnManager private constructor(context: Context) {
             servers
         }
 
-        return ServerTester.rank(ordered) { tested, total, alive ->
+        return ServerTester.rank(ordered, limit = SIFT_ALIVE) { tested, total, alive ->
             if (reportProgress) _state.value = State.Scanning(tested, total, "زنده: " + alive)
         }
     }
 
     /** نامزدها را به ترتیب تا آخر امتحان می‌کند. اولین سالم نگه داشته می‌شود. */
-    private suspend fun tryCandidates(candidates: List<ServerTester.Result>): Boolean {
+    /** سروری که آزمون هم‌زمان را رد کرده، با همان حالتی که در آن جواب داد. */
+    private data class Passed(
+        val result: ServerTester.Result,
+        val fragment: Boolean,
+        val latencyMs: Long
+    )
+
+    /**
+     * آزمون هم‌زمان: چند ده سرور در یک هسته، هر کدام روی پورت خودش، و یک
+     * درخواست واقعی به همه با هم.
+     *
+     * هر سرور TLS دو بار امتحان می‌شود، یک بار با تکه‌تکه کردن دست‌دادن و
+     * یک بار بی آن. معلوم نیست تکه‌تکه کردن روی هر شبکه و هر CDN کمک کند؛
+     * بعضی لبه‌ها دست‌دادن تکه‌تکه را نمی‌پذیرند. به جای حدس زدن، هر دو
+     * سنجیده می‌شود و همانی که جواب داد نگه داشته می‌شود.
+     */
+    private suspend fun screen(candidates: List<ServerTester.Result>): List<Passed> {
         val quarantined = store.quarantine
-        val attempts = candidates
+        val picked = candidates
             .filter { it.link.identity !in quarantined }
             // یک سرور با ده آی‌پی ورودی مختلف هنوز یک سرور است
             .distinctBy { it.link.identity }
-            .take(fullAttempts)
+            .take(SCREEN_SIZE)
         val skipped = candidates.count { it.link.identity in quarantined }
         if (skipped > 0) Report.log(skipped.toString() + " نامزد قرنطینه‌شده کنار گذاشته شد")
-        Report.log("امتحان کامل روی " + attempts.size + " سرور متفاوت")
+        if (picked.isEmpty()) return emptyList()
 
-        attempts.forEachIndexed { index, candidate ->
+        val slots = ArrayList<XrayConfig.ScreenSlot>()
+        val owners = ArrayList<ServerTester.Result>()
+        var port = SCREEN_BASE_PORT
+        for (candidate in picked) {
+            val variants = if (store.fragmentTls && XrayConfig.canFragment(candidate.link)) {
+                listOf(true, false)
+            } else {
+                listOf(false)
+            }
+            for (fragment in variants) {
+                slots.add(XrayConfig.ScreenSlot(candidate.link, candidate.ip, fragment, port++))
+                owners.add(candidate)
+            }
+        }
+
+        _state.value = State.Scanning(0, picked.size, "آزمون هم‌زمان " + picked.size + " سرور")
+        Report.log("آزمون هم‌زمان: " + picked.size + " سرور متفاوت در " + slots.size + " حالت")
+
+        CoreCrash.install(appContext)
+        runCatching { Azadcore.stopXray() }
+        try {
+            Azadcore.startXray(XrayConfig.buildScreening(slots))
+        } catch (e: Throwable) {
+            Report.logError("آزمون هم‌زمان", e)
+            return emptyList()
+        }
+
+        val latencies = try {
+            coroutineScope {
+                slots.map { slot ->
+                    async(Dispatchers.IO) { ProxyProbe.httpLatency(slot.port, quiet = true) }
+                }.awaitAll()
+            }
+        } finally {
+            runCatching { Azadcore.stopXray() }
+        }
+
+        // از هر سرور، حالتی که سریع‌تر جواب داد
+        val best = LinkedHashMap<String, Passed>()
+        slots.forEachIndexed { i, slot ->
+            val ms = latencies[i] ?: return@forEachIndexed
+            val owner = owners[i]
+            val previous = best[owner.link.identity]
+            if (previous == null || ms < previous.latencyMs) {
+                best[owner.link.identity] = Passed(owner, slot.fragment, ms)
+            }
+        }
+        val passed = best.values.sortedBy { it.latencyMs }
+
+        val withFragment = slots.indices.count { latencies[it] != null && slots[it].fragment }
+        val plain = slots.indices.count { latencies[it] != null && !slots[it].fragment }
+        Report.log(
+            "آزمون هم‌زمان: " + passed.size + " از " + picked.size + " سرور جواب دادند" +
+                " (با تکه‌تکه " + withFragment + "، بی‌تکه " + plain + ")"
+        )
+        return passed
+    }
+
+    private suspend fun tryCandidates(passed: List<Passed>): Boolean {
+        val attempts = passed.take(fullAttempts)
+        Report.log("امتحان کامل روی " + attempts.size + " سرور")
+
+        attempts.forEachIndexed { index, entry ->
+            val candidate = entry.result
             _state.value = State.Scanning(index + 1, attempts.size, candidate.link.label)
             Report.log(
                 "نامزد " + (index + 1) + ": " + candidate.link.label +
-                    " [" + candidate.ip + "] " + candidate.latencyMs + " میلی‌ثانیه"
+                    " [" + candidate.ip + "] " + entry.latencyMs + " میلی‌ثانیه" +
+                    (if (entry.fragment) "، تکه‌تکه" else "")
             )
 
-            if (tryXrayServer(candidate)) {
+            if (tryXrayServer(candidate, entry.fragment)) {
                 // سرور ثابت کرد ترافیک رد می‌کند؛ حالا و فقط حالا رابط VPN
                 // ساخته می‌شود. اگر از قبل برقرار است (جابه‌جایی سرور)، پل
                 // همان پورت را می‌شناسد و دست زدن به آن لازم نیست.
@@ -319,7 +408,7 @@ class VpnManager private constructor(context: Context) {
      * یک سرور را تا آخر امتحان می‌کند: تونل بالا بیاید و ترافیک واقعی از آن
      * عبور کند. اگر هر کدام نشد، false و دلیلش در گزارش.
      */
-    private suspend fun tryXrayServer(candidate: ServerTester.Result): Boolean {
+    private suspend fun tryXrayServer(candidate: ServerTester.Result, fragment: Boolean): Boolean {
         // پیش از بالا آوردن هسته ثبت می‌شود، چون اگر این سرور هسته را
         // بکشد فرصت دیگری برای ثبت نیست
         recentlyTried.remove(candidate.link.identity)
@@ -332,7 +421,7 @@ class VpnManager private constructor(context: Context) {
             AzadVpnService.DEFAULT_SOCKS_PORT,
             candidate.ip,
             if (store.domesticDirect) IranList.load(appContext) else null,
-            fragment = store.fragmentTls
+            fragment = fragment
         )
 
         // امتحان فقط با خود هسته، بدون رابط VPN. برنامه از VPN کنار گذاشته
@@ -453,7 +542,9 @@ class VpnManager private constructor(context: Context) {
         }
 
         if (candidates.isEmpty()) return false
-        return tryCandidates(candidates)
+        val passed = screen(candidates)
+        if (passed.isEmpty()) return false
+        return tryCandidates(passed)
     }
 
     /** فهرست ذخیره را بدون دست زدن به تونل فعلی تازه می‌کند. */
@@ -723,6 +814,15 @@ class VpnManager private constructor(context: Context) {
     companion object {
         /** هر چند وقت یک بار تونل سنجیده شود. */
         private const val WATCH_INTERVAL_MS = 30_000L
+
+        /** غربال TCP تا پیدا کردن این تعداد سرور زنده ادامه می‌دهد. */
+        private const val SIFT_ALIVE = 60
+
+        /** چند سرور متفاوت در آزمون هم‌زمان سنجیده شوند. */
+        private const val SCREEN_SIZE = 24
+
+        /** پورت‌های محلی آزمون هم‌زمان از اینجا شروع می‌شوند. */
+        private const val SCREEN_BASE_PORT = 20810
 
         /** چند شکست پشت سر هم تا سرور مرده حساب شود. یکی ممکن است اتفاقی باشد. */
         private const val MISSES_BEFORE_SWITCH = 2
