@@ -8,6 +8,7 @@ import com.antitahrim.azad.warp.Store
 import com.antitahrim.azad.warp.WarpAccount
 import com.antitahrim.azad.warp.WarpRegistrar
 import com.antitahrim.azad.xray.ConfigSources
+import com.antitahrim.azad.xray.ProxyProbe
 import com.antitahrim.azad.xray.ServerTester
 import com.antitahrim.azad.xray.XrayConfig
 import com.wireguard.android.backend.Backend
@@ -160,6 +161,7 @@ class VpnManager private constructor(context: Context) {
 
             store.workingEndpoint = best.link.key
             _state.value = State.Connected(best.link.label)
+            Report.log("وصل شد به " + best.link.label)
         } catch (e: Throwable) {
             Report.logError("اتصال Xray", e)
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
@@ -191,13 +193,23 @@ class VpnManager private constructor(context: Context) {
         return TunnelOutcome.TimedOut
     }
 
-    /** یک پرس‌وجوی DNS از داخل تونل، به عنوان اثبات عبور واقعی ترافیک. */
+    /**
+     * اثبات اینکه ترافیک واقعاً تا سرور می‌رود و برمی‌گردد.
+     *
+     * یک درخواست از خود برنامه چیزی ثابت نمی‌کند، چون برنامه عمداً از VPN
+     * کنار گذاشته شده و درخواستش از کنار تونل رد می‌شود. به جایش مستقیم از
+     * پروکسی SOCKS محلی عبور داده می‌شود، که روی لوپ‌بک است و زنجیره
+     * Xray تا سرور را واقعاً می‌سنجد.
+     */
     private suspend fun trafficFlows(): Boolean {
-        repeat(5) {
-            if (IranDns.probeThroughTunnel()) return true
-            delay(800)
+        repeat(4) { attempt ->
+            if (ProxyProbe.trafficFlows(AzadVpnService.DEFAULT_SOCKS_PORT)) {
+                Report.log("ترافیک از سرور عبور کرد")
+                return true
+            }
+            if (attempt < 3) delay(1_500)
         }
-        Report.log("تونل بالا آمد ولی پرس‌وجوی آزمایشی جوابی نگرفت")
+        Report.log("تونل بالا آمد ولی ترافیکی از سرور عبور نکرد")
         return false
     }
 

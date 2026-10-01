@@ -122,6 +122,15 @@ class AzadVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
 
+        // گرفتن IPv6 هم لازم است، وگرنه روی گوشی‌هایی که اپراتور IPv6 داده
+        // هر برنامه‌ای که IPv6 را ترجیح بدهد کلاً از کنار تونل رد می‌شود و
+        // مستقیم به مقصد فیلترشده می‌رود. از بیرون این دقیقاً شبیه «وصل است
+        // ولی اینترنت ندارد» دیده می‌شود.
+        runCatching {
+            builder.addAddress(TUN_ADDRESS_V6, TUN_PREFIX_V6)
+            builder.addRoute("::", 0)
+        }.onFailure { Report.logError("گرفتن مسیر IPv6", it) }
+
         // بدون این، ترافیک خود Xray دوباره وارد tun می‌شود و حلقه می‌سازد
         runCatching { builder.addDisallowedApplication(packageName) }
             .onFailure { Report.logError("کنار گذاشتن خود برنامه از VPN", it) }
@@ -155,6 +164,8 @@ class AzadVpnService : VpnService() {
         private const val MTU = 1500
         private const val TUN_ADDRESS = "10.28.0.2"
         private const val TUN_PREFIX = 30
+        private const val TUN_ADDRESS_V6 = "fd00:2026:a2ad::1"
+        private const val TUN_PREFIX_V6 = 128
         private const val SESSION_NAME = "Azad"
 
         private val _state = MutableStateFlow<State>(State.Idle)
