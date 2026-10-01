@@ -1,9 +1,11 @@
 package com.antitahrim.azad
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -16,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.databinding.ActivityMainBinding
+import com.antitahrim.azad.vpn.AzadVpnService
 import com.antitahrim.azad.vpn.VpnManager
 import com.antitahrim.azad.warp.Store
 import kotlinx.coroutines.launch
@@ -36,6 +39,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) Report.log("کاربر اجازه اعلان را نداد")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -44,13 +53,16 @@ class MainActivity : AppCompatActivity() {
         bindSettings()
         showCrashIfAny()
 
+        // یک دکمه برای سه حالت: وصل کن، قطع کن، و لغو وسط جست‌وجو
         binding.actionButton.setOnClickListener {
-            if (vpn.isConnected()) {
-                lifecycleScope.launch { vpn.disconnect() }
+            if (vpn.isBusyOrConnected()) {
+                vpn.disconnectAsync()
             } else {
                 requestPermissionThenConnect()
             }
         }
+
+        askForNotificationsOnce()
 
         binding.copyLogButton.setOnClickListener { copyReport() }
 
@@ -107,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         binding.switchFragment.isChecked = store.fragmentTls
         binding.switchStrictDns.isChecked = store.strictIranDns
         binding.switchDomestic.isChecked = store.domesticDirect
+        binding.switchNotification.isChecked = store.persistentNotification
 
         // انتخاب حامل. تغییرش وسط اتصال اثری ندارد تا اتصال بعدی.
         if (store.transport == Store.TRANSPORT_WARP) {
@@ -125,6 +138,11 @@ class MainActivity : AppCompatActivity() {
         binding.switchFragment.setOnCheckedChangeListener { _, checked -> store.fragmentTls = checked }
         binding.switchStrictDns.setOnCheckedChangeListener { _, checked -> store.strictIranDns = checked }
         binding.switchDomestic.setOnCheckedChangeListener { _, checked -> store.domesticDirect = checked }
+        binding.switchNotification.setOnCheckedChangeListener { _, checked ->
+            store.persistentNotification = checked
+            // روی اتصال فعلی هم بلافاصله اثر می‌گذارد، نه از اتصال بعد
+            AzadVpnService.applyNotificationSetting(this, checked)
+        }
     }
 
     private fun requestPermissionThenConnect() {
@@ -132,8 +150,28 @@ class MainActivity : AppCompatActivity() {
         if (intent != null) vpnPermission.launch(intent) else startConnect()
     }
 
+    /**
+     * اتصال در دامنه خود برنامه اجرا می‌شود، نه در دامنه این صفحه. اگر کاربر
+     * وسط جست‌وجو از برنامه بیرون برود، کار نیمه‌کاره لغو نمی‌شود.
+     */
     private fun startConnect() {
-        lifecycleScope.launch { vpn.connect() }
+        vpn.connectAsync()
+    }
+
+    /**
+     * از اندروید ۱۳ نمایش اعلان اجازه می‌خواهد. بدون آن تونل کار می‌کند ولی
+     * کلید قطع و وصل در نوار وضعیت دیده نمی‌شود. فقط یک بار پرسیده می‌شود.
+     */
+    private fun askForNotificationsOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) return
+
+        val prefs = getSharedPreferences("azad_ui", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("asked_notifications", false)) return
+        prefs.edit().putBoolean("asked_notifications", true).apply()
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun observeState() {
@@ -165,21 +203,24 @@ class MainActivity : AppCompatActivity() {
                 statusText.setText(R.string.state_preparing)
                 detailText.text = ""
                 progress.visibility = View.VISIBLE
-                actionButton.isEnabled = false
+                actionButton.setText(R.string.cancel)
+                actionButton.isEnabled = true
             }
 
             is VpnManager.State.Registering -> {
                 statusText.setText(R.string.state_registering)
                 detailText.text = ""
                 progress.visibility = View.VISIBLE
-                actionButton.isEnabled = false
+                actionButton.setText(R.string.cancel)
+                actionButton.isEnabled = true
             }
 
             is VpnManager.State.Scanning -> {
                 statusText.setText(R.string.state_scanning)
                 detailText.text = state.tried.toString() + "/" + state.total + "  " + state.endpoint
                 progress.visibility = View.VISIBLE
-                actionButton.isEnabled = false
+                actionButton.setText(R.string.cancel)
+                actionButton.isEnabled = true
             }
 
             is VpnManager.State.Connected -> {

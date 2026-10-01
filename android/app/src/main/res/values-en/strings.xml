@@ -13,7 +13,7 @@
 
     <string name="settings">Settings</string>
     <string name="opt_domestic">Route domestic traffic directly</string>
-    <string name="opt_domestic_desc">Keep Iranian sites out of the tunnel. Faster, but can slow down connecting on older phones.</string>
+    <string name="opt_domestic_desc">Iranian sites and IP addresses connect directly instead of through the tunnel. Banking and payment gateways work, and it is faster. The list updates itself weekly.</string>
     <string name="opt_fragment">Fragment the TLS handshake</string>
     <string name="opt_fragment_desc">Hides the domain name in the first packet from deep packet inspection.</string>
     <string name="opt_strict_dns">Iranian DNS only</string>
@@ -34,4 +34,15 @@
     <string name="transport_xray_desc">Faster and usually gets through. Traffic passes through servers run by strangers, so not for anything sensitive.</string>
     <string name="transport_warp">Cloudflare\'s free tunnel</string>
     <string name="transport_warp_desc">Trusts no stranger, but some Iranian networks block the protocol outright.</string>
+
+    <string name="cancel">Cancel</string>
+    <string name="state_connecting_short">Connecting</string>
+    <string name="state_connecting_to">Connecting to %1$s…</string>
+    <string name="notif_connected">Connected to %1$s</string>
+    <string name="notif_switching">Server stopped responding, switching to another…</string>
+    <string name="channel_tunnel">Tunnel status</string>
+    <string name="channel_tunnel_desc">Persistent tunnel notification with a connect/disconnect switch.</string>
+    <string name="tile_label">Azad</string>
+    <string name="opt_notification">Persistent notification</string>
+    <string name="opt_notification_desc">Shows Azad in the status bar with a connect/disconnect button. With it off there is no notification, but Android is more likely to close the tunnel while searching or when memory is low. The Quick Settings tile works either way.</string>
 </resources>

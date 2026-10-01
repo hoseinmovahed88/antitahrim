@@ -13,7 +13,7 @@
 
     <string name="settings">تنظیمات</string>
     <string name="opt_domestic">ترافیک داخلی مستقیم</string>
-    <string name="opt_domestic_desc">سایت‌های ایرانی از تونل رد نشوند. سریع‌تر است ولی روی گوشی‌های قدیمی ممکن است اتصال را کند کند.</string>
+    <string name="opt_domestic_desc">سایت‌ها و آی‌پی‌های ایرانی مستقیم وصل شوند و از تونل رد نشوند. بانک و درگاه پرداخت کار می‌کند و سریع‌تر است. فهرست هر هفته خودکار به‌روز می‌شود.</string>
     <string name="opt_fragment">تکه‌تکه کردن دست‌دادن TLS</string>
     <string name="opt_fragment_desc">اسم دامنه را در اولین بسته از دید سامانه بازرسی پنهان می‌کند.</string>
     <string name="opt_strict_dns">فقط DNS ایرانی</string>
@@ -34,4 +34,15 @@
     <string name="transport_xray_desc">سریع‌تر و معمولاً باز می‌شود. ترافیک از سرور افراد ناشناس رد می‌شود، پس برای کار حساس مناسب نیست.</string>
     <string name="transport_warp">تونل رایگان Cloudflare</string>
     <string name="transport_warp_desc">به هیچ غریبه‌ای اعتماد نمی‌کند، ولی در بعضی شبکه‌های ایران کل پروتکلش مسدود است.</string>
+
+    <string name="cancel">لغو</string>
+    <string name="state_connecting_short">در حال اتصال</string>
+    <string name="state_connecting_to">اتصال به %1$s…</string>
+    <string name="notif_connected">وصل به %1$s</string>
+    <string name="notif_switching">سرور قبلی از کار افتاد، جابه‌جایی به سرور دیگر…</string>
+    <string name="channel_tunnel">وضعیت تونل</string>
+    <string name="channel_tunnel_desc">اعلان همیشگی تونل با کلید قطع و وصل.</string>
+    <string name="tile_label">آزاد</string>
+    <string name="opt_notification">اعلان همیشگی</string>
+    <string name="opt_notification_desc">اعلان آزاد با کلید قطع و وصل در نوار وضعیت. اگر خاموشش کنید اعلانی نمی‌ماند، ولی اندروید راحت‌تر ممکن است تونل را وسط جست‌وجو یا وقتی حافظه کم است ببندد. کاشی تنظیمات سریع در هر دو حالت کار می‌کند.</string>
 </resources>

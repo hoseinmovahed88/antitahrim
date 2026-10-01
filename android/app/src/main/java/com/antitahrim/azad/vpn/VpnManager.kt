@@ -1,8 +1,12 @@
 package com.antitahrim.azad.vpn
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import com.antitahrim.azad.R
 import com.antitahrim.azad.core.Report
 import com.antitahrim.azad.net.IranDns
+import com.antitahrim.azad.net.IranList
 import com.antitahrim.azad.warp.Endpoints
 import com.antitahrim.azad.warp.Store
 import com.antitahrim.azad.warp.WarpAccount
@@ -15,8 +19,14 @@ import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.crypto.Key
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +73,25 @@ class VpnManager private constructor(context: Context) {
 
     val log: StateFlow<List<String>> = Report.lines
 
+    /**
+     * دامنه کارهای پس‌زمینه، به عمر خود برنامه و نه به عمر صفحه.
+     *
+     * اتصال تا دو دقیقه طول می‌کشد و نگهبان اتصال تا وقتی وصلیم کار می‌کند.
+     * اگر این‌ها به چرخه عمر صفحه گره بخورند، با بستن صفحه یا زدن کاشی از
+     * پنل نیمه‌کاره لغو می‌شوند.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var connectJob: Job? = null
+    private var watchdogJob: Job? = null
+
+    /** سرورهایی که در غربال زنده بودند، به ترتیب سرعت. ذخیره برای جابه‌جایی سریع. */
+    @Volatile
+    private var pool: List<ServerTester.Result> = emptyList()
+
+    /** سروری که الان رویش هستیم. */
+    @Volatile
+    private var current: ServerTester.Result? = null
+
     /** چند نقطه اتصال قبل از تسلیم شدن امتحان شود. */
     private val scanBudget = 22
 
@@ -81,7 +110,25 @@ class VpnManager private constructor(context: Context) {
         return runCatching { backend.getState(tunnel) == Tunnel.State.UP }.getOrDefault(false)
     }
 
+    /** وصل است یا در حال وصل شدن. کاشی بر اساس این تصمیم می‌گیرد بزند یا قطع کند. */
+    fun isBusyOrConnected(): Boolean = when (_state.value) {
+        is State.Disconnected, is State.Failed -> isConnected()
+        else -> true
+    }
+
+    /** اتصال را در پس‌زمینه شروع می‌کند. اگر از قبل در جریان باشد کاری نمی‌کند. */
+    fun connectAsync() {
+        if (connectJob?.isActive == true) return
+        connectJob = scope.launch { connect() }
+    }
+
+    /** هر کار در جریان را لغو و تونل را قطع می‌کند. */
+    fun disconnectAsync() {
+        scope.launch { disconnect() }
+    }
+
     suspend fun connect() = withContext(Dispatchers.IO) {
+        watchdogJob?.cancel()
         if (store.transport == Store.TRANSPORT_XRAY) {
             connectViaXray()
         } else {
@@ -98,32 +145,24 @@ class VpnManager private constructor(context: Context) {
             _state.value = State.Preparing
             Report.log("شروع اتصال از راه Xray")
 
-            val cached = store.workingEndpoint
-            val servers = ConfigSources.fetchAll(store.fragmentTls, store.strictIranDns)
-            if (servers.isEmpty()) {
-                _state.value = State.Failed(
-                    "هیچ فهرست سروری دریافت نشد. اینترنت را بررسی کنید و دوباره بزنید."
-                )
+            // سرویس از همین حالا پیش‌زمینه می‌شود، نه از لحظه وصل شدن
+            AzadVpnService.prepare(appContext)
+
+            // فهرست ایران موازی با جست‌وجوی سرورها تازه می‌شود. هفته‌ای یک
+            // بار شبکه می‌زند و بقیه وقت‌ها فوراً برمی‌گردد.
+            val listsReady = scope.async { refreshIranListIfNeeded() }
+
+            val ranked = freshPool()
+            if (ranked == null) {
+                failXray("هیچ فهرست سروری دریافت نشد. اینترنت را بررسی کنید و دوباره بزنید.")
                 return
             }
-
-            // اگر سروری قبلاً کار کرده بود، اول همان امتحان می‌شود
-            val ordered = if (cached != null) {
-                servers.sortedByDescending { it.key == cached }
-            } else {
-                servers
-            }
-
-            val ranked = ServerTester.rank(ordered) { tested, total, alive ->
-                _state.value = State.Scanning(tested, total, "زنده: " + alive)
-            }
-
             if (ranked.isEmpty()) {
-                _state.value = State.Failed(
-                    "هیچ‌کدام از سرورهای فهرست از این شبکه در دسترس نبودند."
-                )
+                failXray("هیچ‌کدام از سرورهای فهرست از این شبکه در دسترس نبودند.")
                 return
             }
+            pool = ranked
+            listsReady.await()
 
             // غربال TCP فقط می‌گوید پورت باز است. خیلی از این سرورها
             // پورتشان باز است و دست‌دادن رمزنگاری‌شان شکست می‌خورد، یا کلید
@@ -131,38 +170,80 @@ class VpnManager private constructor(context: Context) {
             // تکیه بر یک نامزد یعنی شکست کل اتصال با اولین سرور خراب.
             // به جایش چند نامزد اول یکی‌یکی تا آخر امتحان می‌شوند و فقط
             // آنی می‌ماند که ترافیک واقعی از آن عبور کند.
-            val attempts = ranked.take(fullAttempts)
-            Report.log("امتحان کامل روی " + attempts.size + " نامزد اول")
-
-            attempts.forEachIndexed { index, candidate ->
-                _state.value = State.Scanning(index + 1, attempts.size, candidate.link.label)
-                Report.log(
-                    "نامزد " + (index + 1) + ": " + candidate.link.label +
-                        " [" + candidate.ip + "] " + candidate.latencyMs + " میلی‌ثانیه"
-                )
-
-                if (tryXrayServer(candidate)) {
-                    store.workingEndpoint = candidate.link.key
-                    _state.value = State.Connected(candidate.link.label)
-                    Report.log("وصل شد به " + candidate.link.label)
-                    return
-                }
-
-                // پیش از نامزد بعدی، سرویس و هسته باید کامل پایین بیایند
-                AzadVpnService.stop(appContext)
-                delay(1_200)
+            if (tryCandidates(ranked)) {
+                startWatchdog()
+                return
             }
 
-            _state.value = State.Failed(
-                "از " + attempts.size + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
+            failXray(
+                "از " + minOf(ranked.size, fullAttempts) + " سروری که پورتشان باز بود، هیچ‌کدام ترافیک عبور نداد. " +
                     "دوباره بزنید تا سرورهای تازه امتحان شوند."
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Report.logError("اتصال Xray", e)
-            _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
+            failXray(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
         }
     }
 
+    private fun failXray(message: String) {
+        AzadVpnService.stop(appContext)
+        _state.value = State.Failed(message)
+    }
+
+    /**
+     * فهرست‌ها را می‌گیرد و غربال می‌کند. null یعنی هیچ فهرستی نیامد،
+     * فهرست خالی یعنی آمد ولی هیچ سروری زنده نبود.
+     */
+    private suspend fun freshPool(reportProgress: Boolean = true): List<ServerTester.Result>? {
+        val cached = store.workingEndpoint
+        val servers = ConfigSources.fetchAll(store.fragmentTls, store.strictIranDns)
+        if (servers.isEmpty()) return null
+
+        // اگر سروری قبلاً کار کرده بود، اول همان امتحان می‌شود
+        val ordered = if (cached != null) {
+            servers.sortedByDescending { it.key == cached }
+        } else {
+            servers
+        }
+
+        return ServerTester.rank(ordered) { tested, total, alive ->
+            if (reportProgress) _state.value = State.Scanning(tested, total, "زنده: " + alive)
+        }
+    }
+
+    /** نامزدها را به ترتیب تا آخر امتحان می‌کند. اولین سالم نگه داشته می‌شود. */
+    private suspend fun tryCandidates(candidates: List<ServerTester.Result>): Boolean {
+        val attempts = candidates.take(fullAttempts)
+        Report.log("امتحان کامل روی " + attempts.size + " نامزد اول")
+
+        attempts.forEachIndexed { index, candidate ->
+            _state.value = State.Scanning(index + 1, attempts.size, candidate.link.label)
+            Report.log(
+                "نامزد " + (index + 1) + ": " + candidate.link.label +
+                    " [" + candidate.ip + "] " + candidate.latencyMs + " میلی‌ثانیه"
+            )
+
+            if (tryXrayServer(candidate)) {
+                current = candidate
+                store.workingEndpoint = candidate.link.key
+                _state.value = State.Connected(candidate.link.label)
+                AzadVpnService.updateNotification(
+                    appContext,
+                    appContext.getString(R.string.notif_connected, candidate.link.label),
+                    connected = true
+                )
+                Report.log("وصل شد به " + candidate.link.label)
+                return true
+            }
+
+            // پیش از نامزد بعدی، هسته و پل باید کامل پایین بیایند. سرویس
+            // خودش سر جایش می‌ماند تا اعلان و پیش‌زمینه از دست نرود.
+            delay(800)
+        }
+        return false
+    }
 
     /**
      * یک سرور را تا آخر امتحان می‌کند: تونل بالا بیاید و ترافیک واقعی از آن
@@ -172,7 +253,8 @@ class VpnManager private constructor(context: Context) {
         val config = XrayConfig.build(
             candidate.link,
             AzadVpnService.DEFAULT_SOCKS_PORT,
-            candidate.ip
+            candidate.ip,
+            if (store.domesticDirect) IranList.load(appContext) else null
         )
         AzadVpnService.start(
             appContext,
@@ -201,6 +283,139 @@ class VpnManager private constructor(context: Context) {
         return trafficFlows()
     }
 
+    private fun refreshIranListIfNeeded() {
+        if (!store.domesticDirect) return
+        runCatching {
+            IranList.refreshIfStale(appContext, store.fragmentTls, store.strictIranDns)
+        }.onFailure { Report.logError("به‌روزرسانی فهرست ایران", it) }
+        val lists = IranList.load(appContext)
+        Report.log(
+            "مسیر مستقیم ایران: " + lists.cidrs.size + " رنج و " +
+                lists.domains.size + " نام"
+        )
+    }
+
+    /**
+     * نگهبان اتصال.
+     *
+     * سرورهای رایگان بی‌خبر می‌میرند: صاحبش خاموشش می‌کند، کلیدش عوض
+     * می‌شود، یا اپراتور آی‌پی‌اش را می‌بندد. بدون نگهبان، تونل «وصل»
+     * می‌ماند و اینترنت نمی‌آید تا وقتی کاربر خودش بفهمد و دوباره بزند.
+     *
+     * هر نیم دقیقه یک درخواست واقعی از تونل رد می‌شود. دو شکست پشت سر هم
+     * یعنی سرور رفته، و بی‌صدا به سرور بعدی از فهرست ذخیره جابه‌جا می‌شویم.
+     * فهرست هم هر نیم ساعت در پس‌زمینه تازه می‌شود تا وقت جابه‌جایی،
+     * نامزدها کهنه نباشند.
+     */
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            var misses = 0
+            var lastPoolRefresh = System.currentTimeMillis()
+
+            while (isActive) {
+                delay(WATCH_INTERVAL_MS)
+
+                when (AzadVpnService.state.value) {
+                    is AzadVpnService.State.Revoked -> {
+                        // کاربر از تنظیمات اندروید قطع کرد یا VPN دیگری جایش را گرفت.
+                        // این تصمیم کاربر است و نباید با وصل کردن دوباره خنثی‌اش کرد.
+                        Report.log("VPN از بیرون گرفته شد، نگهبان متوقف شد")
+                        _state.value = State.Disconnected
+                        return@launch
+                    }
+
+                    is AzadVpnService.State.Connected -> {
+                        if (ProxyProbe.trafficFlows(AzadVpnService.DEFAULT_SOCKS_PORT)) {
+                            misses = 0
+                        } else {
+                            misses++
+                            Report.log("نگهبان: سنجش ناموفق " + misses + " از " + MISSES_BEFORE_SWITCH)
+                        }
+                    }
+
+                    else -> misses = MISSES_BEFORE_SWITCH
+                }
+
+                if (misses >= MISSES_BEFORE_SWITCH) {
+                    if (!hasUnderlyingNetwork()) {
+                        // خود گوشی اینترنت ندارد؛ عوض کردن سرور فایده‌ای ندارد و
+                        // فقط فهرست را بی‌جهت می‌سوزاند. صبر می‌کنیم تا شبکه برگردد.
+                        Report.log("نگهبان: گوشی به شبکه وصل نیست، صبر می‌کنیم")
+                        continue
+                    }
+                    misses = 0
+                    if (!switchServer()) {
+                        failXray("ارتباط با سرور قطع شد و سرور جایگزینی پیدا نشد. دوباره بزنید.")
+                        return@launch
+                    }
+                    lastPoolRefresh = System.currentTimeMillis()
+                    continue
+                }
+
+                if (System.currentTimeMillis() - lastPoolRefresh > POOL_REFRESH_MS) {
+                    lastPoolRefresh = System.currentTimeMillis()
+                    refreshPoolQuietly()
+                }
+            }
+        }
+    }
+
+    /** به سرور سالم بعدی جابه‌جا می‌شود. اگر ذخیره ته کشید، فهرست تازه می‌گیرد. */
+    private suspend fun switchServer(): Boolean {
+        val dead = current?.link?.key
+        Report.log("سرور فعلی جواب نمی‌دهد، جابه‌جایی")
+        AzadVpnService.updateNotification(
+            appContext,
+            appContext.getString(R.string.notif_switching),
+            connected = true
+        )
+
+        var candidates = pool.filter { it.link.key != dead }
+        if (candidates.size < 2) {
+            Report.log("ذخیره سرورها ته کشید، گرفتن فهرست تازه")
+            candidates = freshPool(reportProgress = false).orEmpty()
+                .filter { it.link.key != dead }
+            pool = candidates
+        } else {
+            pool = candidates
+        }
+
+        if (candidates.isEmpty()) return false
+        return tryCandidates(candidates)
+    }
+
+    /** فهرست ذخیره را بدون دست زدن به تونل فعلی تازه می‌کند. */
+    private suspend fun refreshPoolQuietly() {
+        runCatching {
+            val fresh = freshPool(reportProgress = false)
+            if (!fresh.isNullOrEmpty()) {
+                pool = fresh
+                Report.log("فهرست ذخیره تازه شد: " + fresh.size + " سرور زنده")
+            }
+        }.onFailure { Report.logError("تازه کردن فهرست ذخیره", it) }
+        // وضعیت را دست‌نخورده نگه می‌داریم؛ کاربر نباید «در حال جست‌وجو» ببیند
+        current?.let { _state.value = State.Connected(it.link.label) }
+        refreshIranListIfNeeded()
+    }
+
+    /**
+     * آیا گوشی جدا از تونل ما شبکه‌ای دارد که اینترنت بدهد؟
+     *
+     * برنامه خودش از VPN کنار گذاشته شده، پس شبکه‌ای که به دردش می‌خورد
+     * شبکه زیرین است نه خود VPN. اگر هیچ شبکه غیر VPN با اینترنت نباشد،
+     * شکست سنجش تقصیر سرور نیست.
+     */
+    @Suppress("DEPRECATION")
+    private fun hasUnderlyingNetwork(): Boolean = runCatching {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return true
+        cm.allNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+    }.getOrDefault(true)
+
     private sealed interface TunnelOutcome {
         data object Established : TunnelOutcome
         data object TimedOut : TunnelOutcome
@@ -219,6 +434,7 @@ class VpnManager private constructor(context: Context) {
             when (val serviceState = AzadVpnService.state.value) {
                 is AzadVpnService.State.Connected -> return TunnelOutcome.Established
                 is AzadVpnService.State.Failed -> return TunnelOutcome.Failed(serviceState.message)
+                is AzadVpnService.State.Revoked -> return TunnelOutcome.Failed("اجازه VPN پس گرفته شد")
                 else -> delay(400)
             }
         }
@@ -309,6 +525,13 @@ class VpnManager private constructor(context: Context) {
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
+        // اول نگهبان و اتصال نیمه‌کاره، وگرنه یکی‌شان بلافاصله دوباره وصل می‌کند
+        watchdogJob?.cancel()
+        connectJob?.cancel()
+        watchdogJob = null
+        connectJob = null
+        current = null
+
         stopTunnel()
         AzadVpnService.stop(appContext)
         _state.value = State.Disconnected
@@ -425,6 +648,15 @@ class VpnManager private constructor(context: Context) {
     fun prefs(): Store = store
 
     companion object {
+        /** هر چند وقت یک بار تونل سنجیده شود. */
+        private const val WATCH_INTERVAL_MS = 30_000L
+
+        /** چند شکست پشت سر هم تا سرور مرده حساب شود. یکی ممکن است اتفاقی باشد. */
+        private const val MISSES_BEFORE_SWITCH = 2
+
+        /** فهرست ذخیره هر نیم ساعت در پس‌زمینه تازه می‌شود. */
+        private const val POOL_REFRESH_MS = 30L * 60 * 1000
+
         @Volatile
         private var instance: VpnManager? = null
 

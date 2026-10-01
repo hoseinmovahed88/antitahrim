@@ -1,5 +1,6 @@
 package com.antitahrim.azad.xray
 
+import com.antitahrim.azad.net.IranList
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -44,14 +45,24 @@ object XrayConfig {
         "fe80::/10"
     )
 
+    /** دامنه‌های سطح بالای ایران: ir و معادل فارسی‌اش به شکل punycode. */
+    private val IRAN_TLDS = listOf("ir", "xn--mgba3a4f16a")
+
     /**
      * @param socksPort پورتی که پل tun2socks به آن وصل می‌شود
      * @param link سروری که ترافیک از آن بیرون می‌رود
      * @param serverIp اگر داده شود، هسته به جای ترجمه دوباره نام میزبان
      *   مستقیم به همین آدرس وصل می‌شود. نام میزبان همان‌جا که باید بماند
      *   می‌ماند، یعنی در SNI و در هدر Host، پس چیزی برای DPI عوض نمی‌شود.
+     * @param iranDirect اگر داده شود، مقصدهای ایرانی از تونل رد نمی‌شوند و
+     *   مستقیم از شبکه خود گوشی می‌روند.
      */
-    fun build(link: ConfigLink, socksPort: Int, serverIp: String? = null): String {
+    fun build(
+        link: ConfigLink,
+        socksPort: Int,
+        serverIp: String? = null,
+        iranDirect: IranList.Lists? = null
+    ): String {
         val root = JSONObject()
 
         root.put("log", JSONObject().put("loglevel", "warning"))
@@ -85,26 +96,61 @@ object XrayConfig {
                 .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
         )
 
-        // مقصدهای محلی هیچ‌وقت نباید وارد تونل شوند، وگرنه حلقه می‌سازند
-        val privateRanges = JSONArray()
-        PRIVATE_RANGES.forEach { privateRanges.put(it) }
-
         root.put(
             "routing",
             JSONObject()
                 .put("domainStrategy", "AsIs")
-                .put(
-                    "rules",
-                    JSONArray().put(
-                        JSONObject()
-                            .put("type", "field")
-                            .put("ip", privateRanges)
-                            .put("outboundTag", "direct")
-                    )
-                )
+                .put("rules", rules(iranDirect))
         )
 
         return root.toString()
+    }
+
+    /**
+     * قواعد مسیریابی. Xray از بالا به پایین می‌خواند و اولین قاعده‌ای که
+     * بخواند برنده است، پس ترتیبشان مهم است.
+     *
+     * قاعده نام‌ها جلوتر از قاعده آی‌پی‌ها می‌آید: مقصدی که نامش شناخته شده
+     * تکلیفش روشن است و سنجیدن آی‌پی‌اش کار اضافه است. نام مقصد از خود
+     * ترافیک بیرون کشیده می‌شود (sniffing در ورودی روشن است)، چون پل tun
+     * فقط آی‌پی می‌دهد و نامی همراهش نیست.
+     */
+    private fun rules(iranDirect: IranList.Lists?): JSONArray {
+        val rules = JSONArray()
+
+        // مقصدهای محلی هیچ‌وقت نباید وارد تونل شوند، وگرنه حلقه می‌سازند
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("ip", JSONArray().apply { PRIVATE_RANGES.forEach { put(it) } })
+                .put("outboundTag", "direct")
+        )
+
+        if (iranDirect == null || iranDirect.isEmpty) return rules
+
+        // دامنه‌های ir و ایران. دو سطر، جای شصت هزار سطر.
+        val domains = JSONArray()
+        IRAN_TLDS.forEach { domains.put("domain:" + it) }
+        iranDirect.domains.forEach { domains.put("domain:" + it) }
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("domain", domains)
+                .put("outboundTag", "direct")
+        )
+
+        val iranIps = JSONArray()
+        iranDirect.cidrs.forEach { iranIps.put(it) }
+        if (iranIps.length() > 0) {
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("ip", iranIps)
+                    .put("outboundTag", "direct")
+            )
+        }
+
+        return rules
     }
 
     private fun outbound(link: ConfigLink, serverIp: String?): JSONObject {

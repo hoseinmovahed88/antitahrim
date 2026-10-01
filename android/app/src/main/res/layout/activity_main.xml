@@ -209,6 +209,20 @@
             android:text="@string/opt_domestic_desc"
             android:textAppearance="?attr/textAppearanceBodySmall" />
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchNotification"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/opt_notification" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alpha="0.6"
+            android:text="@string/opt_notification_desc"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

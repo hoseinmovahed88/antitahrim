@@ -1,5 +1,6 @@
 package com.antitahrim.azad
 
+import com.antitahrim.azad.net.IranList
 import com.antitahrim.azad.xray.ConfigLink
 import com.antitahrim.azad.xray.XrayConfig
 import org.json.JSONObject
@@ -79,6 +80,45 @@ class XrayConfigTest {
             .getJSONArray("vnext")
             .getJSONObject(0)
         assertEquals("example.com", server.getString("address"))
+    }
+
+    @Test
+    fun `iranian destinations go direct when asked`() {
+        val link = requireNotNull(ConfigLink.parse("vless://id@example.com:443#s"))
+        val lists = IranList.Lists(
+            cidrs = listOf("2.144.0.0/14"),
+            domains = listOf("digikala.com")
+        )
+        val config = JSONObject(XrayConfig.build(link, 10808, null, lists))
+        val rules = config.getJSONObject("routing").getJSONArray("rules")
+
+        val domainRule = (0 until rules.length())
+            .map { rules.getJSONObject(it) }
+            .first { it.has("domain") }
+        val domains = domainRule.getJSONArray("domain")
+        val listed = (0 until domains.length()).map { domains.getString(it) }
+
+        assertEquals("direct", domainRule.getString("outboundTag"))
+        // بدون پیشوند domain: هسته نام را به شکل «شامل این متن» می‌خواند و
+        // مثلاً هر نامی که ir در آن باشد مستقیم می‌رفت.
+        assertTrue(listed.contains("domain:ir"))
+        assertTrue(listed.contains("domain:digikala.com"))
+
+        val ipRules = (0 until rules.length())
+            .map { rules.getJSONObject(it) }
+            .filter { it.has("ip") }
+        assertTrue(ipRules.any { rule ->
+            val ips = rule.getJSONArray("ip")
+            (0 until ips.length()).any { ips.getString(it) == "2.144.0.0/14" }
+        })
+    }
+
+    @Test
+    fun `without the option nothing iranian is routed around the tunnel`() {
+        val config = build("vless://id@example.com:443#s")
+        val text = config.toString()
+        assertFalse(text.contains("domain:ir"))
+        assertEquals(1, config.getJSONObject("routing").getJSONArray("rules").length())
     }
 
     @Test

@@ -88,6 +88,14 @@ class Store(context: Context) {
         get() = prefs.getString(KEY_TRANSPORT, TRANSPORT_XRAY) ?: TRANSPORT_XRAY
         set(value) = prefs.edit().putString(KEY_TRANSPORT, value).apply()
 
+    /**
+     * اعلان همیشگی با کلید قطع و وصل. خاموش کردنش سرویس را از حالت
+     * پیش‌زمینه بیرون می‌آورد، چون پیش‌زمینه بدون اعلان ممکن نیست.
+     */
+    var persistentNotification: Boolean
+        get() = prefs.getBoolean(KEY_NOTIFICATION, true)
+        set(value) = prefs.edit().putBoolean(KEY_NOTIFICATION, value).apply()
+
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
@@ -100,5 +108,6 @@ class Store(context: Context) {
         const val KEY_FRAGMENT = "fragment_tls"
         const val KEY_STRICT_DNS = "strict_iran_dns"
         const val KEY_TRANSPORT = "transport"
+        const val KEY_NOTIFICATION = "persistent_notification"
     }
 }

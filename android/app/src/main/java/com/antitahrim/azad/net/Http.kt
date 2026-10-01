@@ -25,7 +25,7 @@ import javax.net.ssl.SSLSocketFactory
  */
 object Http {
 
-    data class Response(val code: Int, val body: String)
+    data class Response(val code: Int, val body: String, val location: String? = null)
 
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 25_000
@@ -58,6 +58,59 @@ object Http {
             }
         }
         throw lastError ?: IOException("اتصال به $host ممکن نشد")
+    }
+
+    /**
+     * مثل [request] ولی تغییر مسیر را هم دنبال می‌کند.
+     *
+     * لازم شد چون فایل‌هایی که از ریلیزهای گیت‌هاب می‌گیریم دو بار تغییر
+     * مسیر می‌دهند، اول به تگ نسخه و بعد به میزبان فایل‌ها. هر پرش نام
+     * جدید را هم دوباره با DNS ایرانی حل می‌کند، وگرنه همان جایی که از
+     * DNS اپراتور فرار کرده‌ایم دوباره به آن برمی‌گردیم.
+     */
+    fun requestFollowing(
+        host: String,
+        path: String,
+        headers: Map<String, String> = emptyMap(),
+        fragment: FragmentConfig = FragmentConfig(),
+        strictIranDns: Boolean = false,
+        maxHops: Int = 4
+    ): Response {
+        var currentHost = host
+        var currentPath = path
+
+        repeat(maxHops) {
+            val response = request(
+                method = "GET",
+                host = currentHost,
+                path = currentPath,
+                headers = headers,
+                fragment = fragment,
+                resolved = IranDns
+                    .resolve(currentHost, allowSystemFallback = !strictIranDns)
+                    .takeIf { it.isNotEmpty() }
+            )
+
+            val target = response.location
+            if (response.code !in 300..399 || target.isNullOrBlank()) return response
+
+            val parsed = splitUrl(target, currentHost)
+                ?: throw IOException("نشانی تغییر مسیر نامفهوم: $target")
+            currentHost = parsed.first
+            currentPath = parsed.second
+        }
+        throw IOException("تغییر مسیر بیش از حد، $host$path")
+    }
+
+    /** نشانی مطلق یا نسبی را به میزبان و مسیر می‌شکند. فقط https. */
+    internal fun splitUrl(url: String, currentHost: String): Pair<String, String>? {
+        if (url.startsWith("/")) return currentHost to url
+        if (!url.startsWith("https://")) return null
+        val rest = url.removePrefix("https://")
+        val slash = rest.indexOf('/')
+        if (slash < 0) return rest to "/"
+        val host = rest.substring(0, slash)
+        return if (host.isBlank()) null else host to rest.substring(slash)
     }
 
     private fun requestVia(
@@ -113,6 +166,7 @@ object Http {
 
         var contentLength = -1
         var chunked = false
+        var location: String? = null
         while (true) {
             val line = readLine(input) ?: break
             if (line.isEmpty()) break
@@ -123,6 +177,7 @@ object Http {
             when (name) {
                 "content-length" -> contentLength = value.toIntOrNull() ?: -1
                 "transfer-encoding" -> chunked = value.lowercase().contains("chunked")
+                "location" -> location = value
             }
         }
 
@@ -131,7 +186,7 @@ object Http {
             contentLength >= 0 -> readExactly(input, contentLength)
             else -> input.readBytes()
         }
-        return Response(code, String(body, Charsets.UTF_8))
+        return Response(code, String(body, Charsets.UTF_8), location)
     }
 
     private fun readLine(input: InputStream): String? {
