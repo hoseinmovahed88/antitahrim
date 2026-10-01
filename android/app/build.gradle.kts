@@ -12,9 +12,34 @@ android {
         // کتابخانه WireGuard حداقل اندروید ۷ می‌خواهد
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // شماره نسخه از شماره ساخت CI می‌آید و با هر ساخت یکی بالا می‌رود.
+        // اندروید نصب نسخه پایین‌تر روی بالاتر را رد می‌کند، و بدون شماره
+        // متفاوت هم معلوم نیست کدام ساخت روی گوشی است.
+        versionCode = (System.getenv("AZAD_BUILD_NUMBER") ?: "1").toInt()
+        versionName = "1.0." + (System.getenv("AZAD_BUILD_NUMBER") ?: "0")
         resourceConfigurations += listOf("fa", "en")
+    }
+
+    /**
+     * کلید امضا باید بین ساخت‌ها یکی بماند.
+     *
+     * پیش از این هیچ کلیدی تعیین نشده بود، پس هر ساخت با کلید دیباگِ همان
+     * ماشین امضا می‌شد. ماشین CI هر بار تازه است و کلید دیباگش را همان لحظه
+     * می‌سازد، یعنی هر ساخت امضای متفاوتی داشت. اندروید نصب نسخه‌ای با امضای
+     * متفاوت روی نسخه نصب‌شده را رد می‌کند، پس برای هر به‌روزرسانی باید
+     * برنامه حذف می‌شد و با آن گزارش و تنظیمات هم می‌رفت.
+     *
+     * حالا فایل کلید در خود مخزن است و همه ساخت‌ها با همان امضا می‌شوند، پس
+     * نسخه تازه روی نسخه قبلی می‌نشیند.
+     *
+     * این همان کلید دیباگ استاندارد اندروید است، با همان نام مستعار و همان
+     * رمز پیش‌فرضی که روی هر ماشین توسعه‌ای یکسان است. پنهان نیست و قرار هم
+     * نیست باشد؛ برای انتشار در فروشگاه کلید واقعی و محرمانه لازم است.
+     */
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("../keystore/debug.keystore")
+        }
     }
 
     /**
@@ -40,6 +65,7 @@ android {
         debug {
             isMinifyEnabled = false
         }
+
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -47,8 +73,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // امضای دیباگ تا خروجی CI روی گوشی نصب شود.
-            // برای انتشار واقعی کلید خودتان را جایگزین کنید.
+            // همان کلید ثابت بالا، تا نسخه ریلیز هم به‌روزرسانی‌پذیر بماند
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -64,6 +89,9 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // از AGP 8 به بعد پیش‌فرض خاموش است و BuildConfig تولید نمی‌شود،
+        // پس نسخه برنامه از داخل کد در دسترس نمی‌بود.
+        buildConfig = true
     }
 
     packaging {

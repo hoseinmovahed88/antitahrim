@@ -85,8 +85,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * سرنویس گزارش. نسخه برنامه اولین چیز است، چون وقتی گزارشی می‌رسد اولین
+     * سؤال این است که از کدام ساخت آمده، و حدس زدنش وقت تلف کردن است.
+     */
     private fun deviceHeader(): String =
-        "اندروید " + Build.VERSION.RELEASE +
+        "آزاد " + BuildConfig.VERSION_NAME +
+            " · اندروید " + Build.VERSION.RELEASE +
             " · " + Build.MANUFACTURER + " " + Build.MODEL +
             " · " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "نامشخص")
 

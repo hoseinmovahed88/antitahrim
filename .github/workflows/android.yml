@@ -120,10 +120,14 @@ jobs:
 
       - name: ساخت APK دیباگ
         working-directory: android
+        env:
+          AZAD_BUILD_NUMBER: ${{ github.run_number }}
         run: ./gradlew --no-daemon assembleDebug
 
       - name: ساخت APK ریلیز
         working-directory: android
+        env:
+          AZAD_BUILD_NUMBER: ${{ github.run_number }}
         run: ./gradlew --no-daemon assembleRelease
 
       # ساخت با تفکیک معماری، یک فایل به ازای هر معماری تولید می‌کند.
@@ -154,7 +158,10 @@ jobs:
           tag_name: apk-latest
           name: آخرین ساخت آزاد
           body: |
-            ساخته‌شده از کامیت ${{ github.sha }}
+            نسخه ۱.۰.${{ github.run_number }} — ساخته‌شده از کامیت ${{ github.sha }}
+
+            روی نسخه قبلی نصب می‌شود و چیزی را حذف نمی‌کند. لازم نیست
+            برنامه را پاک کنید.
 
             **کدام فایل را بگیرم؟**
 
