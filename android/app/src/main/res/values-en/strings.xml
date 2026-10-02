@@ -46,4 +46,8 @@
     <string name="opt_notification">Persistent notification</string>
     <string name="opt_notification_desc">Shows Azad in the status bar with a connect/disconnect button. With it off there is no notification, but Android is more likely to close the tunnel while searching or when memory is low. The Quick Settings tile works either way.</string>
     <string name="crashed_on_server">Last time one of the listed servers crashed the core and the app closed. That server has been set aside; tap connect again.</string>
+    <string name="transport_bale">Bale call</string>
+    <string name="transport_bale_desc">Traffic rides inside a Bale video call, which is on the whitelist. Works when nothing else does, but someone outside Iran has to run the Creator app and give you the call link.</string>
+    <string name="bale_link_hint">Bale call link (https://meet.bale.ai/i/…)</string>
+    <string name="bale_link_missing">Enter the Bale call link first. Whoever runs the Creator outside Iran gives it to you.</string>
 </resources>

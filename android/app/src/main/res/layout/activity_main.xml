@@ -158,7 +158,40 @@
                 android:alpha="0.6"
                 android:text="@string/transport_warp_desc"
                 android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/transportBale"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/transport_bale" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="34dp"
+                android:alpha="0.6"
+                android:text="@string/transport_bale_desc"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
         </RadioGroup>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/baleLinkLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/bale_link_hint"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/baleLinkInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textUri"
+                android:layoutDirection="ltr"
+                android:maxLines="1"
+                android:textDirection="ltr" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
             android:layout_width="wrap_content"

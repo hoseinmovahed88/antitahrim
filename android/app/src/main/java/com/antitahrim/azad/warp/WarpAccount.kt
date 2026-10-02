@@ -129,11 +129,17 @@ class Store(context: Context) {
         prefs.edit().putString(KEY_QUARANTINE, updated.joinToString("\n")).commit()
     }
 
+    /** لینک تماس بله برای روش «تماس بله»، به شکل https://meet.bale.ai/i/... */
+    var baleLink: String
+        get() = prefs.getString(KEY_BALE_LINK, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_BALE_LINK, value.trim()).apply()
+
     fun clear() = prefs.edit().clear().apply()
 
     companion object {
         const val TRANSPORT_WARP = "warp"
         const val TRANSPORT_XRAY = "xray"
+        const val TRANSPORT_BALE = "bale"
 
         const val KEY_ACCOUNT = "account"
         const val KEY_ENDPOINT = "endpoint"
@@ -142,6 +148,7 @@ class Store(context: Context) {
         const val KEY_STRICT_DNS = "strict_iran_dns"
         const val KEY_TRANSPORT = "transport"
         const val KEY_NOTIFICATION = "persistent_notification"
+        const val KEY_BALE_LINK = "bale_link"
         const val KEY_IN_FLIGHT = "servers_in_flight"
         const val KEY_QUARANTINE = "server_quarantine"
 

@@ -164,10 +164,181 @@ class VpnManager private constructor(context: Context) {
 
     suspend fun connect() = withContext(Dispatchers.IO) {
         watchdogJob?.cancel()
-        if (store.transport == Store.TRANSPORT_XRAY) {
-            connectViaXray()
-        } else {
-            connectViaWarp()
+        when (store.transport) {
+            Store.TRANSPORT_XRAY -> connectViaXray()
+            Store.TRANSPORT_BALE -> connectViaBale()
+            else -> connectViaWarp()
+        }
+    }
+
+    /**
+     * مسیر تماس بله: به تماسی که Creator بیرون از ایران ساخته می‌پیوندیم،
+     * ترافیک را از دل آن رد می‌کنیم، و رابط VPN را روی پروکسی محلی جوینر
+     * می‌سازیم. همان پل و همان رابطی که مسیر Xray استفاده می‌کند.
+     */
+    private suspend fun connectViaBale() {
+        try {
+            val link = store.baleLink.trim()
+            if (link.isEmpty()) {
+                _state.value = State.Failed(appContext.getString(R.string.bale_link_missing))
+                return
+            }
+
+            _state.value = State.Preparing
+            Report.log("شروع اتصال از راه تماس بله")
+            AzadVpnService.prepare(appContext)
+
+            // فهرست ایران موازی تازه می‌شود؛ اتصال منتظرش نمی‌ماند مگر لازم باشد
+            val listsReady = scope.async { refreshIranListIfNeeded() }
+
+            // وحشت هسته Go، از جمله جوینر بله، فرایند را بی‌صدا می‌کشد؛ ردش ثبت شود
+            CoreCrash.install(appContext)
+            if (!joinBaleCall(link)) return
+
+            listsReady.await()
+            AzadVpnService.establish(
+                appContext,
+                BaleTransport.SOCKS_PORT,
+                appContext.getString(R.string.transport_bale),
+                excludeIran = store.domesticDirect
+            )
+            when (val outcome = awaitTunnel()) {
+                TunnelOutcome.Established -> Unit
+                is TunnelOutcome.Failed -> {
+                    failBale(outcome.message)
+                    return
+                }
+                TunnelOutcome.TimedOut -> {
+                    failBale("رابط VPN در زمان مقرر ساخته نشد.")
+                    return
+                }
+            }
+
+            val label = appContext.getString(R.string.transport_bale)
+            _state.value = State.Connected(label)
+            AzadVpnService.updateNotification(
+                appContext,
+                appContext.getString(R.string.notif_connected, label),
+                connected = true
+            )
+            Report.log("وصل شد از راه تماس بله")
+            startBaleWatchdog(link)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Report.logError("اتصال بله", e)
+            failBale(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
+        }
+    }
+
+    /**
+     * به تماس می‌پیوندد و ثابت می‌کند ترافیک واقعاً از آن رد می‌شود.
+     *
+     * @return false اگر نشد؛ حالت شکست و دلیلش از قبل ثبت شده است
+     */
+    private suspend fun joinBaleCall(link: String): Boolean {
+        _state.value = State.Scanning(1, 1, appContext.getString(R.string.transport_bale))
+        try {
+            BaleTransport.start(link)
+        } catch (e: Throwable) {
+            Report.logError("پیوستن به تماس بله", e)
+            failBale(e.message ?: "لینک تماس پذیرفته نشد")
+            return false
+        }
+
+        val problem = BaleTransport.awaitConnected()
+        if (problem != null) {
+            Report.log("تماس بله برقرار نشد: " + problem)
+            failBale(
+                "به تماس بله وصل نشد: " + problem +
+                    ". مطمئن شوید Creator همین الان روشن است و لینک تازه است."
+            )
+            return false
+        }
+        Report.log("تونل از دل تماس بله برقرار شد")
+
+        // همان سنجه مسیر Xray: یک درخواست HTTP با پاسخ دانسته، و یک
+        // پرس‌وجوی DNS، هر دو از دل تماس تا Creator و برگشت
+        if (!trafficFlowsVia(BaleTransport.SOCKS_PORT)) {
+            failBale(
+                "تماس برقرار شد ولی ترافیک از آن رد نشد. Creator را بررسی کنید؛ " +
+                    "ممکن است خودش اینترنت آزاد نداشته باشد."
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun failBale(message: String) {
+        BaleTransport.stop()
+        AzadVpnService.stop(appContext)
+        _state.value = State.Failed(message)
+    }
+
+    /**
+     * نگهبان تماس بله. اگر تماس قطع شد، یعنی Creator رفت یا بله تماس را
+     * بست، دوباره به همان لینک می‌پیوندد. رابط VPN سر جایش می‌ماند؛ پل همان
+     * پورت را می‌شناسد و به محض بازگشت جوینر ترافیک دوباره جریان می‌گیرد.
+     */
+    private fun startBaleWatchdog(link: String) {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            var failures = 0
+            while (isActive) {
+                delay(WATCH_INTERVAL_MS)
+
+                if (AzadVpnService.state.value is AzadVpnService.State.Revoked) {
+                    Report.log("VPN از بیرون گرفته شد، نگهبان متوقف شد")
+                    BaleTransport.stop()
+                    _state.value = State.Disconnected
+                    return@launch
+                }
+
+                val healthy = BaleTransport.status.value == BaleTransport.Status.Connected &&
+                    ProxyProbe.trafficFlows(BaleTransport.SOCKS_PORT)
+                if (healthy) {
+                    failures = 0
+                    continue
+                }
+                if (!hasUnderlyingNetwork()) {
+                    Report.log("نگهبان: گوشی به شبکه وصل نیست، صبر می‌کنیم")
+                    continue
+                }
+
+                failures++
+                Report.log("نگهبان: تماس بله جواب نمی‌دهد، پیوستن دوباره (" + failures + ")")
+                AzadVpnService.updateNotification(
+                    appContext,
+                    appContext.getString(R.string.notif_switching),
+                    connected = true
+                )
+                BaleTransport.stop()
+                if (rejoinBale(link)) {
+                    failures = 0
+                    val label = appContext.getString(R.string.transport_bale)
+                    _state.value = State.Connected(label)
+                    AzadVpnService.updateNotification(
+                        appContext,
+                        appContext.getString(R.string.notif_connected, label),
+                        connected = true
+                    )
+                    continue
+                }
+                if (failures >= BALE_MAX_REJOINS) {
+                    failBale("تماس بله قطع شد و پیوستن دوباره ممکن نشد. شاید Creator خاموش شده یا لینک عوض شده.")
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private suspend fun rejoinBale(link: String): Boolean {
+        return try {
+            BaleTransport.start(link)
+            BaleTransport.awaitConnected() == null && trafficFlowsVia(BaleTransport.SOCKS_PORT)
+        } catch (e: Throwable) {
+            Report.logError("پیوستن دوباره به تماس بله", e)
+            false
         }
     }
 
@@ -627,12 +798,14 @@ class VpnManager private constructor(context: Context) {
      * پروکسی SOCKS محلی عبور داده می‌شود، که روی لوپ‌بک است و زنجیره
      * Xray تا سرور را واقعاً می‌سنجد.
      */
-    private suspend fun trafficFlows(): Boolean {
+    private suspend fun trafficFlows(): Boolean = trafficFlowsVia(AzadVpnService.DEFAULT_SOCKS_PORT)
+
+    private suspend fun trafficFlowsVia(socksPort: Int): Boolean {
         // دو تلاش و نه بیشتر. هر تلاش ناموفق چند ثانیه می‌گیرد و چند نامزد
         // پشت سر این صف ایستاده‌اند؛ سروری که دو بار جواب نداد را رها
         // می‌کنیم و وقت را روی نامزد بعدی می‌گذاریم.
         repeat(2) { attempt ->
-            if (ProxyProbe.trafficFlows(AzadVpnService.DEFAULT_SOCKS_PORT)) {
+            if (ProxyProbe.trafficFlows(socksPort)) {
                 Report.log("ترافیک از سرور عبور کرد")
                 return true
             }
@@ -713,6 +886,7 @@ class VpnManager private constructor(context: Context) {
         store.serversInFlight = emptyList()
 
         stopTunnel()
+        BaleTransport.stop()
         AzadVpnService.stop(appContext)
         _state.value = State.Disconnected
         Report.log("قطع شد")
@@ -830,6 +1004,9 @@ class VpnManager private constructor(context: Context) {
     companion object {
         /** هر چند وقت یک بار تونل سنجیده شود. */
         private const val WATCH_INTERVAL_MS = 30_000L
+
+        /** چند بار پشت سر هم پیوستن دوباره به تماس بله امتحان شود. */
+        private const val BALE_MAX_REJOINS = 3
 
         /** غربال TCP تا پیدا کردن این تعداد سرور زنده ادامه می‌دهد. */
         private const val SIFT_ALIVE = 60

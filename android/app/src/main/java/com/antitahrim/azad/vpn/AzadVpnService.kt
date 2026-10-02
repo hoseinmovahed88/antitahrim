@@ -4,16 +4,19 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.IpPrefix
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import azadcore.Azadcore
 import com.antitahrim.azad.R
 import com.antitahrim.azad.core.Report
+import com.antitahrim.azad.net.IranList
 import com.antitahrim.azad.warp.Store
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.InetAddress
 
 /**
  * سرویس VPN برای مسیر Xray.
@@ -65,6 +68,7 @@ class AzadVpnService : VpnService() {
             ACTION_ESTABLISH -> {
                 val socksPort = intent.getIntExtra(EXTRA_SOCKS_PORT, DEFAULT_SOCKS_PORT)
                 val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
+                val excludeIran = intent.getBooleanExtra(EXTRA_EXCLUDE_IRAN, false)
 
                 // پیش از هر کار دیگری. سرویسی که با startForegroundService
                 // شروع شده باید ظرف چند ثانیه startForeground را صدا بزند،
@@ -76,7 +80,7 @@ class AzadVpnService : VpnService() {
                 }
 
                 // ساخت رابط چند صد میلی‌ثانیه طول می‌کشد؛ روی نخ اصلی نه
-                Thread { establishBridge(socksPort, label) }.start()
+                Thread { establishBridge(socksPort, label, excludeIran) }.start()
                 return START_NOT_STICKY
             }
         }
@@ -152,12 +156,12 @@ class AzadVpnService : VpnService() {
      * تعویض رابط شبکه گوشی را هم تکان می‌داد و درخواست‌های خود برنامه را با
      * ENETUNREACH شکست می‌داد.
      */
-    private fun establishBridge(socksPort: Int, label: String) {
+    private fun establishBridge(socksPort: Int, label: String, excludeIran: Boolean) {
         runCatching { Azadcore.stop() }
         _state.value = State.Starting
 
         val descriptor = try {
-            establishTunnel()
+            establishTunnel(excludeIran)
         } catch (e: Throwable) {
             Report.logError("ساخت رابط VPN", e)
             _state.value = State.Failed(e.javaClass.simpleName + ": " + (e.message ?: "بدون پیام"))
@@ -189,7 +193,7 @@ class AzadVpnService : VpnService() {
         Report.log("رابط VPN ساخته شد: " + label)
     }
 
-    private fun establishTunnel(): ParcelFileDescriptor? {
+    private fun establishTunnel(excludeIran: Boolean): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(SESSION_NAME)
             .setMtu(MTU)
@@ -197,6 +201,8 @@ class AzadVpnService : VpnService() {
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
+
+        if (excludeIran) excludeIranianRanges(builder)
 
         // گرفتن IPv6 هم لازم است، وگرنه روی گوشی‌هایی که اپراتور IPv6 داده
         // هر برنامه‌ای که IPv6 را ترجیح بدهد کلاً از کنار تونل رد می‌شود و
@@ -212,6 +218,32 @@ class AzadVpnService : VpnService() {
             .onFailure { Report.logError("کنار گذاشتن خود برنامه از VPN", it) }
 
         return builder.establish()
+    }
+
+    /**
+     * رنج‌های ایران را از رابط VPN بیرون می‌گذارد تا مستقیم بروند.
+     *
+     * برای مسیرهایی که هسته Xray در کار نیست و قاعده مسیریابی‌ای وجود ندارد
+     * که ترافیک ایران را جدا کند، مثل تماس بله. اینجا تفکیک در خود جدول
+     * مسیر اندروید انجام می‌شود، که از ایراد هر لایه بالاتری در امان است.
+     * excludeRoute از اندروید ۱۳ وجود دارد؛ روی نسخه‌های قدیمی‌تر همه
+     * ترافیک از تونل می‌رود.
+     */
+    private fun excludeIranianRanges(builder: Builder) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Report.log("مسیر مستقیم ایران در این حالت به اندروید ۱۳ به بالا نیاز دارد")
+            return
+        }
+        var added = 0
+        for (cidr in IranList.load(this).cidrs) {
+            val address = cidr.substringBefore('/')
+            val prefix = cidr.substringAfter('/').toIntOrNull() ?: continue
+            runCatching {
+                builder.excludeRoute(IpPrefix(InetAddress.getByName(address), prefix))
+                added++
+            }
+        }
+        Report.log("رنج‌های ایران از تونل بیرون گذاشته شد: " + added)
     }
 
     private fun shutdown() {
@@ -237,6 +269,7 @@ class AzadVpnService : VpnService() {
         private const val ACTION_NOTIFICATION = "com.antitahrim.azad.NOTIFICATION"
         private const val EXTRA_SOCKS_PORT = "socks_port"
         private const val EXTRA_LABEL = "label"
+        private const val EXTRA_EXCLUDE_IRAN = "exclude_iran"
         private const val EXTRA_FOREGROUND = "foreground"
 
         const val DEFAULT_SOCKS_PORT = 10808
@@ -274,12 +307,13 @@ class AzadVpnService : VpnService() {
          * رابط VPN را می‌سازد و به پروکسی محلی وصل می‌کند. هسته Xray باید
          * از قبل روی socksPort بالا باشد.
          */
-        fun establish(context: Context, socksPort: Int, label: String) {
+        fun establish(context: Context, socksPort: Int, label: String, excludeIran: Boolean = false) {
             _state.value = State.Starting
             val intent = Intent(context, AzadVpnService::class.java).apply {
                 action = ACTION_ESTABLISH
                 putExtra(EXTRA_SOCKS_PORT, socksPort)
                 putExtra(EXTRA_LABEL, label)
+                putExtra(EXTRA_EXCLUDE_IRAN, excludeIran)
             }
             launch(context, intent)
         }

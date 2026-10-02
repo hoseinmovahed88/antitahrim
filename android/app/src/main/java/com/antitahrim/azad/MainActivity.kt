@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -122,18 +123,25 @@ class MainActivity : AppCompatActivity() {
         binding.switchNotification.isChecked = store.persistentNotification
 
         // انتخاب حامل. تغییرش وسط اتصال اثری ندارد تا اتصال بعدی.
-        if (store.transport == Store.TRANSPORT_WARP) {
-            binding.transportWarp.isChecked = true
-        } else {
-            binding.transportXray.isChecked = true
+        when (store.transport) {
+            Store.TRANSPORT_WARP -> binding.transportWarp.isChecked = true
+            Store.TRANSPORT_BALE -> binding.transportBale.isChecked = true
+            else -> binding.transportXray.isChecked = true
         }
+        binding.baleLinkLayout.visibility =
+            if (store.transport == Store.TRANSPORT_BALE) View.VISIBLE else View.GONE
         binding.transportGroup.setOnCheckedChangeListener { _, checkedId ->
-            store.transport = if (checkedId == R.id.transportWarp) {
-                Store.TRANSPORT_WARP
-            } else {
-                Store.TRANSPORT_XRAY
+            store.transport = when (checkedId) {
+                R.id.transportWarp -> Store.TRANSPORT_WARP
+                R.id.transportBale -> Store.TRANSPORT_BALE
+                else -> Store.TRANSPORT_XRAY
             }
+            binding.baleLinkLayout.visibility =
+                if (checkedId == R.id.transportBale) View.VISIBLE else View.GONE
         }
+
+        binding.baleLinkInput.setText(store.baleLink)
+        binding.baleLinkInput.doAfterTextChanged { text -> store.baleLink = text?.toString().orEmpty() }
 
         binding.switchFragment.setOnCheckedChangeListener { _, checked -> store.fragmentTls = checked }
         binding.switchStrictDns.setOnCheckedChangeListener { _, checked -> store.strictIranDns = checked }
