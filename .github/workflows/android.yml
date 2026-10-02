@@ -53,9 +53,15 @@ jobs:
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile init
+          # -checklinkname=0: کتابخانه anet که Pion روی اندروید برای شمردن
+          # رابط‌های شبکه استفاده می‌کند، با go:linkname به net.zoneCache
+          # دست می‌زند. Go از ۱.۲۳ این را پیش‌فرض مسدود می‌کند و پیوند با
+          # «invalid reference to net.zoneCache» شکست می‌خورد. راهنمای خود
+          # anet همین پرچم را می‌خواهد.
           gomobile bind -v \
             -target=android/arm64,android/arm \
             -androidapi 24 \
+            -ldflags=-checklinkname=0 \
             -o azadcore.aar \
             .
           ls -la azadcore.aar
