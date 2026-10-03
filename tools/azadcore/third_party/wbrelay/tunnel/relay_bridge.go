@@ -21,6 +21,19 @@ func rbHex(b []byte, n int) string {
 	return hex.EncodeToString(b[:n])
 }
 
+// isLocalOrPrivate reports whether ip is a loopback, link-local, or
+// RFC1918/ULA private address. Go's net.IP.IsGlobalUnicast() does NOT
+// exclude private address space (it explicitly returns true for
+// 192.168.0.0/16, 10.0.0.0/8, etc. - see the stdlib docs), so it cannot be
+// used to detect "this is a local network address" on its own.
+func isLocalOrPrivate(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsPrivate()
+}
+
 type udpClient struct {
 	udpConn    *net.UDPConn
 	clientAddr *net.UDPAddr
@@ -370,7 +383,7 @@ func (rb *RelayBridge) handleSOCKS(conn net.Conn) {
 	// burst of such connections. That flood starved real traffic and made
 	// the watchdog think the tunnel had died. Since the joiner machine IS
 	// on the local network, dial these directly here instead.
-	if ip != nil && !ip.IsGlobalUnicast() {
+	if ip != nil && isLocalOrPrivate(ip) {
 		rb.logFn("relay: SOCKS local dial %s", common.MaskAddr(host))
 		target, dialErr := net.DialTimeout("tcp", host, 5*time.Second)
 		if dialErr != nil {
