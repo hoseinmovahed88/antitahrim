@@ -203,6 +203,7 @@ class AzadVpnService : VpnService() {
             .addDnsServer("8.8.8.8")
 
         if (excludeIran) excludeIranianRanges(builder)
+        excludePrivateRanges(builder)
 
         // گرفتن IPv6 هم لازم است، وگرنه روی گوشی‌هایی که اپراتور IPv6 داده
         // هر برنامه‌ای که IPv6 را ترجیح بدهد کلاً از کنار تونل رد می‌شود و
@@ -244,6 +245,41 @@ class AzadVpnService : VpnService() {
             }
         }
         Report.log("رنج‌های ایران از تونل بیرون گذاشته شد: " + added)
+    }
+
+    /**
+     * رنج‌های شبکه محلی/private (مثل 192.168.x.x) را از رابط VPN بیرون
+     * می‌گذارد.
+     *
+     * بدون این، هر درخواست به شبکه محلی (روتر، پرینتر، یا حتی یک SDK
+     * ضدتقلب که دنبال Frida روی پورت‌های 27042/27043 می‌گردد) وارد تونل
+     * می‌شود. در مسیر Xray این فقط یک اتصال ناموفق است، ولی در مسیر تماس
+     * بله که پهنای‌باند بسیار محدودی دارد (داده از دل فریم‌های ویدیویی رد
+     * می‌شود)، سیل این درخواست‌های بی‌فایده کانال را اشغال و تونل را از کار
+     * می‌انداخت. برخلاف رنج‌های ایران، این همیشه فعال است چون هیچ‌وقت منطقی
+     * نیست شبکه محلی از تونل عبور کند.
+     */
+    private fun excludePrivateRanges(builder: Builder) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Report.log("مسیر مستقیم شبکه محلی به اندروید ۱۳ به بالا نیاز دارد")
+            return
+        }
+        val privateRanges = listOf(
+            "10.0.0.0" to 8,
+            "172.16.0.0" to 12,
+            "192.168.0.0" to 16,
+            "169.254.0.0" to 16,
+            "fc00::" to 7,
+            "fe80::" to 10
+        )
+        var added = 0
+        for ((address, prefix) in privateRanges) {
+            runCatching {
+                builder.excludeRoute(IpPrefix(InetAddress.getByName(address), prefix))
+                added++
+            }
+        }
+        Report.log("رنج‌های شبکه محلی از تونل بیرون گذاشته شد: " + added)
     }
 
     private fun shutdown() {
