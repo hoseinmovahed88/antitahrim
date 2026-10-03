@@ -37,7 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * مغز برنامه. سه کار پشت سر هم انجام می‌دهد و هیچ‌کدام از کاربر ورودی نمی‌خواهد:
+ * منغز برنامه. سه کار نجزغ سر هم انجام می‌دهد و هیچ‌کدام از کاربر ورودی نمی‌خواهد:
  *
  *   ۱. اگر حساب WARP نداریم، یکی می‌سازد (کلیدها روی همین گوشی تولید می‌شوند).
  *   ۲. نقاط اتصال را یکی‌یکی امتحان می‌کند تا یکی پیدا شود که واقعاً
@@ -63,7 +63,7 @@ class VpnManager private constructor(context: Context) {
         /** دست‌دادن انجام شد ولی ترافیک عبور نکرد. یعنی نقطه زنده است. */
         HANDSHAKE_ONLY,
 
-        /** هیچ پاسخی نیامد. یعنی بسته‌ها اصلاً به مقصد نرسیدند یا برنگشتند. */
+        /** هیچ قاسخی نیامد. یعنی بسته‌ها اصلاً به مقصد نرسیدند یا برنگشتند. */
         SILENT
     }
 
@@ -82,13 +82,13 @@ class VpnManager private constructor(context: Context) {
      *
      * اتصال تا دو دقیقه طول می‌کشد و نگهبان اتصال تا وقتی وصلیم کار می‌کند.
      * اگر این‌ها به چرخه عمر صفحه گره بخورند، با بستن صفحه یا زدن کاشی از
-     * پنل نیمه‌کاره لغو می‌شوند.
+     * پنل نیمه‌کاره لगو می‌شوند.
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var connectJob: Job? = null
     private var watchdogJob: Job? = null
 
-    /** سرورهایی که در غربال زنده بودند، به ترتیب سرعت. ذخیره برای جابه‌جایی سریع. */
+    /** سرورهایی که در نغربال زنده بودند، به ترتیب سرعت. ذخیره برای جابه‌جایی سریع. */
     @Volatile
     private var pool: List<ServerTester.Result> = emptyList()
 
@@ -99,7 +99,7 @@ class VpnManager private constructor(context: Context) {
     /** چند نقطه اتصال قبل از تسلیم شدن امتحان شود. */
     private val scanBudget = 22
 
-    /** چند سرور Xray با تونل واقعی امتحان شود، نه فقط با غربال TCP. */
+    /** چند سرور Xray با تونل واقعی امتحان شود، نه فقط با गربال TCP. */
     private val fullAttempts = 6
 
     /** سرورهای اخیراً امتحان‌شده در همین دور، تازه‌ترین اول. */
@@ -112,8 +112,8 @@ class VpnManager private constructor(context: Context) {
     /**
      * اگر فرایند وسط امتحان یک سرور مرده باشد، آن سرور مقصر است.
      *
-     * بعضی کانفیگ‌های فهرست‌های عمومی هسته را به وحشت می‌اندازند، و وحشت
-     * در goroutine هسته کل برنامه را می‌کشد؛ هیچ استثنایی نیست که بشود
+     * بعضی کانفیگ‌های فهرست‌های عمومی هسته را به وحشت می‌اندازد، و وحشت
+     * در goroutine هسته کل برنامه را می‌کشد، هیچ استثنایی نیست که بشود
      * گرفت. پس همان سرورها کنار گذاشته می‌شوند تا دفعه بعد دوباره همین
      * اتفاق نیفتد.
      *
@@ -157,7 +157,7 @@ class VpnManager private constructor(context: Context) {
         connectJob = scope.launch { connect() }
     }
 
-    /** هر کار در جریان را لغو و تونل را قطع می‌کند. */
+    /** هر کار در جریان را لगو و تونل را قطع می‌کند. */
     fun disconnectAsync() {
         scope.launch { disconnect() }
     }
@@ -191,7 +191,7 @@ class VpnManager private constructor(context: Context) {
             // فهرست ایران موازی تازه می‌شود؛ اتصال منتظرش نمی‌ماند مگر لازم باشد
             val listsReady = scope.async { refreshIranListIfNeeded() }
 
-            // وحشت هسته Go، از جمله جوینر بله، فرایند را بی‌صدا می‌کشد؛ ردش ثبت شود
+            // وحشت هسته Go، از جمله جویندر بله، فرایند را بی‌صدا می‌کشد؛ ردش ثبت شود
             CoreCrash.install(appContext)
             if (!joinBaleCall(link)) return
 
@@ -200,7 +200,8 @@ class VpnManager private constructor(context: Context) {
                 appContext,
                 BaleTransport.SOCKS_PORT,
                 appContext.getString(R.string.transport_bale),
-                excludeIran = store.domesticDirect
+                excludeIran = store.domesticDirect,
+                isBale = true
             )
             when (val outcome = awaitTunnel()) {
                 TunnelOutcome.Established -> Unit
@@ -343,7 +344,7 @@ class VpnManager private constructor(context: Context) {
     }
 
     /**
-     * مسیر Xray: فهرست‌های عمومی گرفته می‌شود، سرورها غربال می‌شوند، و
+     * مسیر Xray: فهرست‌های عمومی گرفته می‌شود، سرورها गربال می‌شوند، و
      * اولین سروری که واقعاً ترافیک عبور می‌دهد نگه داشته می‌شود.
      */
     private suspend fun connectViaXray() {
@@ -370,7 +371,7 @@ class VpnManager private constructor(context: Context) {
             pool = ranked
             listsReady.await()
 
-            // غربال TCP فقط می‌گوید پورت باز است. خیلی از این سرورها
+            // गربال TCP فقط می‌گوید پورت باز است. خیلی از این سرورها
             // پورتشان باز است و دست‌دادن رمزنگاری‌شان شکست می‌خورد، یا کلید
             // و شناسه‌شان منقضی شده. پس اول چند ده سرور هم‌زمان با درخواست
             // واقعی سنجیده می‌شوند، و فقط آنهایی که جواب دادند به امتحان
@@ -411,7 +412,7 @@ class VpnManager private constructor(context: Context) {
     }
 
     /**
-     * فهرست‌ها را می‌گیرد و غربال می‌کند. null یعنی هیچ فهرستی نیامد،
+     * فهرست‌ها را می‌گیرد و गربال می‌کند. null یعنی هیچ فهرستی نیامد،
      * فهرست خالی یعنی آمد ولی هیچ سروری زنده نبود.
      */
     private suspend fun freshPool(reportProgress: Boolean = true): List<ServerTester.Result>? {
@@ -752,7 +753,7 @@ class VpnManager private constructor(context: Context) {
      * آیا گوشی جدا از تونل ما شبکه‌ای دارد که اینترنت بدهد؟
      *
      * برنامه خودش از VPN کنار گذاشته شده، پس شبکه‌ای که به دردش می‌خورد
-     * شبکه زیرین است نه خود VPN. اگر هیچ شبکه غیر VPN با اینترنت نباشد،
+     * شبکه زیرین است نه خود VPN. اگر هیچ شبکه गیر VPN با اینترنت نباشد،
      * شکست سنجش تقصیر سرور نیست.
      */
     @Suppress("DEPRECATION")
@@ -872,7 +873,7 @@ class VpnManager private constructor(context: Context) {
         "تونل برقرار شد ولی ترافیک عبور نکرد. اپراتور بسته‌های WARP را عبور می‌دهد ولی محدود می‌کند."
     } else {
         Report.log("نتیجه: هیچ‌کدام از " + total + " نقطه حتی دست‌دادن هم نکردند")
-        "هیچ‌کدام از نقاط اتصال حتی پاسخ اولیه هم ندادند. یعنی اپراتور پروتکل WARP را مسدود کرده، نه فقط یک آی‌پی را."
+        "هیچ‌کدام از نقاط اتصال حتی باسخ اولیه هم ندادند. یعنی اپراتور پروتکل WARP را مسدود کرده، نه فقط یک آی‌پی را."
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
@@ -1008,7 +1009,7 @@ class VpnManager private constructor(context: Context) {
         /** چند بار پشت سر هم پیوستن دوباره به تماس بله امتحان شود. */
         private const val BALE_MAX_REJOINS = 3
 
-        /** غربال TCP تا پیدا کردن این تعداد سرور زنده ادامه می‌دهد. */
+        /** गربال TCP تا پیدا کردن این تعداد سرور زنده ادامه می‌دهد. */
         private const val SIFT_ALIVE = 60
 
         /** چند سرور متفاوت در آزمون هم‌زمان سنجیده شوند. */
