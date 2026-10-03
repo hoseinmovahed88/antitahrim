@@ -10,6 +10,8 @@
 #   bash install-creator.sh              نصب و راه‌اندازی
 #   bash install-creator.sh link         نمایش لینک تماس فعلی
 #   bash install-creator.sh cookies      عوض کردن کوکی بله (وقتی منقضی شد)
+#   bash install-creator.sh install FILE  نصب با کوکی از یک فایل
+#   bash install-creator.sh cookies FILE  عوض کردن کوکی از یک فایل
 #   bash install-creator.sh uninstall    حذف کامل
 set -euo pipefail
 
@@ -30,48 +32,87 @@ current_link() {
 	[ -s "$LINK_FILE" ] && tail -n 1 "$LINK_FILE" || true
 }
 
-# کوکی را از دو شکل می‌پذیرد: فایل JSON که دکمه «Bale Cookies» در برنامه
-# Creator دسکتاپ می‌سازد، یا یک خط خام مثل access_token=eyJ...
+# کوکی را به هر شکلی که معمولاً کپی می‌شود می‌پذیرد:
+#   - فایل JSON که دکمه «Bale Cookies» در برنامه Creator دسکتاپ می‌سازد
+#   - یک خط مثل access_token=eyJ...  (چند کوکی با ; جدا)
+#   - سطر جدول DevTools که نام و مقدار را با Tab یا فاصله جدا می‌کند
+#   - یا فقط خود توکن، که با eyJ شروع می‌شود
+# اگر آرگومان اول مسیر یک فایل باشد، از همان فایل خوانده می‌شود. برای کوکی‌های
+# خیلی بلند بهتر است، چون ترمینال خط‌های بلندتر از حدود ۴۰۰۰ نویسه را می‌بُرد.
 read_cookies() {
-	say "کوکی حساب بله را وارد کنید"
-	cat <<'TXT'
-دو راه دارید:
+	local input="" line
+	if [ -n "${1:-}" ] && [ -f "$1" ]; then
+		input="$(cat "$1")"
+	else
+		say "کوکی حساب بله را وارد کنید"
+		cat <<'TXT'
+هر کدام از این‌ها پذیرفته می‌شود:
   ۱. محتوای فایل bale-cookies.json که برنامه Creator دسکتاپ با دکمه
-     «Bale Cookies» می‌سازد (با [ شروع می‌شود).
-  ۲. یک خط خام کوکی، مثل:  access_token=eyJhbGciOi...
-     (از مرورگر دسکتاپ، بعد از ورود به web.bale.ai، در DevTools بخش
-      Application → Cookies → web.bale.ai مقدار access_token را بردارید)
+     «Bale Cookies» می‌سازد.
+  ۲. خط  access_token=eyJ...
+  ۳. فقط خود توکن که با eyJ شروع می‌شود (از DevTools مرورگر، بخش
+     Application → Cookies → web.bale.ai، ستون Value ردیف access_token).
 
 متن را بچسبانید و بعد یک خط خالی بزنید (Enter دو بار):
 TXT
-	local input="" line
-	while IFS= read -r line; do
-		[ -z "$line" ] && [ -n "$input" ] && break
-		input+="$line"$'\n'
-	done
-	input="$(printf '%s' "$input" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-	[ -n "$input" ] || die "چیزی وارد نشد"
+		while IFS= read -r line; do
+			[ -z "$line" ] && [ -n "$input" ] && break
+			input+="$line"$'\n'
+		done
+	fi
+	[ -n "$(printf '%s' "$input" | tr -d '[:space:]')" ] || die "چیزی وارد نشد"
 
 	mkdir -p "$CONF_DIR"
 	chmod 700 "$CONF_DIR"
-	if [ "${input:0:1}" = "[" ]; then
-		printf '%s\n' "$input" > "$COOKIE_FILE"
-	else
-		# خط خام را به همان قالب JSON تبدیل می‌کند که Creator می‌خواند
-		python3 - "$input" > "$COOKIE_FILE" <<'PY'
-import json, sys
-pairs = []
-for part in sys.argv[1].split(";"):
-    if "=" in part:
-        name, value = part.strip().split("=", 1)
-        pairs.append({"name": name.strip(), "value": value.strip()})
-json.dump(pairs, sys.stdout)
-PY
+	local tmp="$COOKIE_FILE.new"
+	# فایل موقت؛ فقط اگر معتبر بود جای فایل اصلی را می‌گیرد، تا ورودی خراب
+	# دفعه بعد بی‌سؤال دوباره استفاده نشود
+	if ! printf '%s' "$input" | python3 -c "$COOKIE_PARSER" > "$tmp"; then
+		rm -f "$tmp"
+		die "کوکی access_token در آنچه وارد شد پیدا نشد. یا خط access_token=... را بچسبانید، یا فقط مقدار توکن را که با eyJ شروع می‌شود."
 	fi
-	chmod 600 "$COOKIE_FILE"
-	grep -q '"access_token"' "$COOKIE_FILE" || die "کوکی access_token در آنچه وارد شد پیدا نشد"
+	chmod 600 "$tmp"
+	mv "$tmp" "$COOKIE_FILE"
 	echo "کوکی ذخیره شد: $COOKIE_FILE"
 }
+
+# هر شکل ورودی را به همان آرایه JSON تبدیل می‌کند که Creator می‌خواند.
+# اگر access_token در آن نباشد با کد ۱ خارج می‌شود.
+COOKIE_PARSER='
+import json, re, sys
+raw = sys.stdin.read().strip()
+pairs = []
+
+def add(name, value):
+    name, value = name.strip().strip("\"\x27:"), value.strip().strip("\"\x27")
+    if name and value:
+        pairs.append({"name": name, "value": value})
+
+try:
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        data = [data] if "name" in data else [{"name": k, "value": v} for k, v in data.items()]
+    for c in data:
+        add(str(c.get("name", "")), str(c.get("value", "")))
+except Exception:
+    for part in re.split(r"[;\n]+", raw):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part and not part.startswith("eyJ"):
+            name, value = part.split("=", 1)
+            add(name, value)
+            continue
+        cols = part.split()
+        if len(cols) >= 2 and not cols[0].startswith("eyJ"):
+            add(cols[0], cols[1])
+        elif part.startswith("eyJ"):
+            add("access_token", cols[0])
+
+if not any(p["name"] == "access_token" for p in pairs):
+    sys.exit(1)
+json.dump(pairs, sys.stdout)
+'
 
 install_binary() {
 	local arch
@@ -151,7 +192,9 @@ case "${1:-install}" in
 		command -v curl >/dev/null || apt-get install -y curl >/dev/null
 		command -v python3 >/dev/null || apt-get install -y python3 >/dev/null
 		install_binary
-		[ -s "$COOKIE_FILE" ] || read_cookies
+		# فایل کوکی قبلی فقط اگر واقعاً access_token داشته باشد نگه داشته
+		# می‌شود؛ نسخه قبلی این اسکریپت ورودی نامعتبر را هم ذخیره می‌کرد
+		grep -q '"access_token"' "$COOKIE_FILE" 2>/dev/null || read_cookies "${2:-}"
 		install_service
 		wait_for_link
 		;;
@@ -161,7 +204,7 @@ case "${1:-install}" in
 		;;
 	cookies)
 		need_root "$@"
-		read_cookies
+		read_cookies "${2:-}"
 		chown -R azadbale "$CONF_DIR"
 		systemctl restart "$SERVICE"
 		wait_for_link
